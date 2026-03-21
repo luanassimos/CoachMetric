@@ -57,7 +57,7 @@ export default function TrainingPage() {
       setSessionStudioId("");
       setSessionOpen(false);
 
-      window.location.reload();
+      
     } catch (error: any) {
       console.error("FULL ERROR:", error);
       alert(error.message || "Failed to create training session.");

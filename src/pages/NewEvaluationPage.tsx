@@ -59,23 +59,31 @@ export default function NewEvaluationPage() {
         setTemplateName("Legacy Evaluation");
         return;
       }
-
+<div className="rounded-md border p-3 text-xs space-y-1">
+  <div>MODE: PROD TEST</div>
+  <div>coachId: {coachId || "none"}</div>
+  <div>selectedCoachStudio: {selectedCoach?.studio_id || "none"}</div>
+  <div>templateName: {templateName}</div>
+  <div>drawerOpen: {String(drawerOpen)}</div>
+  <div>shouldUseDynamic: {String(shouldUseDynamic)}</div>
+  <div>coaches: {coaches.length}</div>
+</div>
       setTemplateLoading(true);
 
       try {
-        const template = await getActiveEvaluationTemplateForStudio(
+        const t = await getActiveEvaluationTemplateForStudio(
           selectedCoach.studio_id
         );
 
-        if (template) {
-          setActiveTemplate(template);
-          setTemplateName(template.name || "Active Template");
+        if (t) {
+          setActiveTemplate(t);
+          setTemplateName(t.name || "Active Template");
         } else {
           setActiveTemplate(null);
           setTemplateName("Legacy Evaluation");
         }
-      } catch (error) {
-        console.error(error);
+      } catch (e) {
+        console.error(e);
         setActiveTemplate(null);
         setTemplateName("Legacy Evaluation");
       } finally {
@@ -106,7 +114,7 @@ export default function NewEvaluationPage() {
           <h1 className="text-xl sm:text-2xl font-semibold">New Evaluation</h1>
 
           <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
-            <span className="text-sm text-muted-foreground break-words">
+            <span className="break-words text-sm text-muted-foreground">
               {templateLoading ? "Loading..." : `Using: ${templateName}`}
             </span>
 
@@ -138,9 +146,9 @@ export default function NewEvaluationPage() {
                 <SelectValue placeholder="Select coach" />
               </SelectTrigger>
               <SelectContent>
-                {coaches.map((coach) => (
-                  <SelectItem key={coach.id} value={coach.id}>
-                    {getCoachName(coach)}
+                {coaches.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {getCoachName(c)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -169,14 +177,6 @@ export default function NewEvaluationPage() {
           />
 
           <Input
-            type="number"
-            placeholder="Class size"
-            value={classSize}
-            onChange={(e) => setClassSize(e.target.value)}
-            className="w-full"
-          />
-
-          <Input
             type="date"
             value={classDate}
             onChange={(e) => setClassDate(e.target.value)}
@@ -187,6 +187,14 @@ export default function NewEvaluationPage() {
             type="time"
             value={classTime}
             onChange={(e) => setClassTime(e.target.value)}
+            className="w-full"
+          />
+
+          <Input
+            type="number"
+            placeholder="Class size"
+            value={classSize}
+            onChange={(e) => setClassSize(e.target.value)}
             className="w-full"
           />
         </div>
