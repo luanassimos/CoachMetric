@@ -5,7 +5,7 @@ import {
   MinusCircle,
   Plus,
 } from "lucide-react";
-import { useEffect, useState } from "react";  
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getActionItems } from "@/utils/actionCenter";
 import { supabase } from "@/lib/supabase";
@@ -13,13 +13,10 @@ import { useEvaluations } from "@/hooks/useEvaluations";
 import { useStudios } from "@/hooks/useStudios";
 import { useCoaches } from "@/hooks/useCoaches";
 import { getOnboardingOverview } from "@/utils/onboarding";
-import { seedNorthBeachDefaultEvaluation } from "@/scripts/seedNorthBeachDefaultEvaluation";
-
 import {
   getSelectedStudioSession,
   setSelectedStudioSession,
 } from "@/data/session";
-
 import { generateGlobalInsights } from "@/utils/globalInsights";
 import { getCoachName, getStudioName } from "@/data/helpers";
 import { prepareDashboardData } from "@/utils/dashboard";
@@ -89,7 +86,7 @@ export default function Dashboard() {
 
   if (studiosLoading || coachesLoading || evaluationsLoading) {
     return (
-      <div className="p-6 text-sm text-muted-foreground">
+      <div className="p-4 sm:p-6 text-sm text-muted-foreground">
         Loading dashboard...
       </div>
     );
@@ -139,6 +136,7 @@ export default function Dashboard() {
 
   const actionItems = getActionItems(filteredCoaches);
   const onboardingOverview = getOnboardingOverview(filteredCoaches);
+
   const overdueCount = coachesWithCycle.filter(
     (coach: any) => coach.evaluationCycle?.evaluation_status === "overdue"
   ).length;
@@ -186,25 +184,21 @@ export default function Dashboard() {
   ];
 
   const notesByType = Object.entries(data.notes_by_type);
-  <Button
-  onClick={() => seedNorthBeachDefaultEvaluation()}
->
-  Seed Template
-</Button>
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
+    <div className="space-y-4 sm:space-y-6 min-w-0">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
             Coach Performance Overview
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="mt-1 text-sm text-muted-foreground">
             Performance, risk, and development visibility across your coaching
             team
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center lg:w-auto lg:justify-end">
           {accessibleStudios.length > 1 && (
             <select
               value={selectedStudioId}
@@ -212,7 +206,7 @@ export default function Dashboard() {
                 setSelectedStudioId(e.target.value);
                 setSelectedStudioSession(e.target.value);
               }}
-              className="rounded-md border bg-background px-3 py-2 text-sm"
+              className="h-10 w-full rounded-md border bg-background px-3 text-sm sm:w-[240px]"
             >
               <option value="all">All Accessible Studios</option>
               {accessibleStudios.map((studio) => (
@@ -223,8 +217,12 @@ export default function Dashboard() {
             </select>
           )}
 
-          <Button onClick={() => navigate("/evaluations/new")} size="sm">
-            <Plus className="h-4 w-4 mr-1.5" />
+          <Button
+            onClick={() => navigate("/evaluations/new")}
+            className="w-full sm:w-auto"
+            size="sm"
+          >
+            <Plus className="mr-1.5 h-4 w-4" />
             New Evaluation
           </Button>
         </div>
@@ -235,220 +233,232 @@ export default function Dashboard() {
           Attention Needed
         </p>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <button
+            type="button"
             onClick={() =>
               navigateToCoaches({
                 coachStatus: "active",
                 evaluationStatus: "overdue",
               })
             }
-            className="card-critical p-4 interactive-card"
+            className="card-critical interactive-card w-full p-4 text-left"
           >
-            <div className="flex items-start justify-between">
-              <div>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-red-400" />
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-red-400" />
                   <p className="label-xs text-red-400">Overdue Evaluations</p>
                 </div>
 
-                <p className="text-3xl font-bold mt-2 font-data">
+                <p className="mt-2 text-3xl font-bold font-data">
                   {overdueCount}
                 </p>
 
-                <p className="text-xs mt-2 text-red-300/80">
+                <p className="mt-2 text-xs text-red-300/80">
                   Immediate attention required →
                 </p>
               </div>
             </div>
-          </div>
+          </button>
 
-          <div
+          <button
+            type="button"
             onClick={() =>
               navigateToCoaches({
                 coachStatus: "active",
                 evaluationStatus: "due-soon",
               })
             }
-            className="card-warning p-4 interactive-card"
+            className="card-warning interactive-card w-full p-4 text-left"
           >
             <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-orange-300" />
+              <Clock className="h-4 w-4 shrink-0 text-orange-300" />
               <p className="label-xs text-orange-300">Due Soon</p>
             </div>
 
-            <p className="text-3xl font-bold mt-2 font-data">{dueSoonCount}</p>
+            <p className="mt-2 text-3xl font-bold font-data">{dueSoonCount}</p>
 
-            <p className="text-xs mt-2 text-orange-200/80">
+            <p className="mt-2 text-xs text-orange-200/80">
               Upcoming evaluations →
             </p>
-          </div>
+          </button>
 
-          <div
+          <button
+            type="button"
             onClick={() =>
               navigateToCoaches({
                 coachStatus: "active",
                 evaluationStatus: "on-track",
               })
             }
-            className="card-positive p-4 interactive-card"
+            className="card-positive interactive-card w-full p-4 text-left"
           >
             <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-green-300" />
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-green-300" />
               <p className="label-xs text-green-300">On Track</p>
             </div>
 
-            <p className="text-3xl font-bold mt-2 font-data">{onTrackCount}</p>
+            <p className="mt-2 text-3xl font-bold font-data">{onTrackCount}</p>
 
-            <p className="text-xs mt-2 text-green-200/80">
+            <p className="mt-2 text-xs text-green-200/80">
               Performing as expected →
             </p>
-          </div>
+          </button>
 
-          <div
+          <button
+            type="button"
             onClick={() =>
               navigateToCoaches({
                 coachStatus: "active",
                 evaluationStatus: "none",
               })
             }
-            className="card-elevated p-4 interactive-card"
+            className="card-elevated interactive-card w-full p-4 text-left"
           >
             <div className="flex items-center gap-2">
-              <MinusCircle className="h-4 w-4 text-muted-foreground" />
+              <MinusCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
               <p className="label-xs text-muted-foreground">No Evaluation</p>
             </div>
 
-            <p className="text-3xl font-bold mt-2 font-data">
+            <p className="mt-2 text-3xl font-bold font-data">
               {noEvaluationCount}
             </p>
 
-            <p className="text-xs mt-2 text-muted-foreground">
+            <p className="mt-2 text-xs text-muted-foreground">
               Needs assignment →
             </p>
-          </div>
+          </button>
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-4">
-        <div className="card-elevated p-5">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+        <div className="card-elevated p-5 xl:col-span-3">
           <p className="label-xs">Team Performance Score</p>
-          <div className="mt-2 flex items-center gap-3">
+          <div className="mt-2 flex flex-wrap items-center gap-3">
             <span className="metric-value">{data.team_average_score}%</span>
             <PerformanceBadge score={data.team_average_score} />
           </div>
         </div>
-        <div className="card-elevated p-5 space-y-4">
-  <div className="flex items-center justify-between">
-    <div>
-      <h2 className="text-sm font-semibold">Onboarding Overview</h2>
-      <p className="text-xs text-muted-foreground mt-1">
-        Readiness and completion status for new coaches
-      </p>
-    </div>
 
-    <div className="text-right">
-      <p className="label-xs">Average Progress</p>
-      <p className="metric-value mt-1">{onboardingOverview.averageProgress}%</p>
-    </div>
-  </div>
+        <div className="card-elevated p-5 space-y-4 xl:col-span-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold">Onboarding Overview</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Readiness and completion status for new coaches
+              </p>
+            </div>
 
-  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-    <div className="rounded-lg border bg-background/40 p-4">
-      <p className="label-xs">Total</p>
-      <p className="text-2xl font-bold mt-2 font-data">
-        {onboardingOverview.total}
-      </p>
-      <p className="text-xs mt-2 text-muted-foreground">
-        Coaches with onboarding
-      </p>
-    </div>
+            <div className="text-left sm:text-right">
+              <p className="label-xs">Average Progress</p>
+              <p className="metric-value mt-1">
+                {onboardingOverview.averageProgress}%
+              </p>
+            </div>
+          </div>
 
-    <div className="rounded-lg border bg-background/40 p-4">
-      <p className="label-xs">Not Started</p>
-      <p className="text-2xl font-bold mt-2 font-data">
-        {onboardingOverview.notStarted}
-      </p>
-      <p className="text-xs mt-2 text-muted-foreground">
-        No progress yet
-      </p>
-    </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="rounded-lg border bg-background/40 p-4">
+              <p className="label-xs">Total</p>
+              <p className="mt-2 text-2xl font-bold font-data">
+                {onboardingOverview.total}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Coaches with onboarding
+              </p>
+            </div>
 
-    <div className="rounded-lg border bg-background/40 p-4">
-      <p className="label-xs">In Progress</p>
-      <p className="text-2xl font-bold mt-2 font-data">
-        {onboardingOverview.inProgress}
-      </p>
-      <p className="text-xs mt-2 text-muted-foreground">
-        Work in progress
-      </p>
-    </div>
+            <div className="rounded-lg border bg-background/40 p-4">
+              <p className="label-xs">Not Started</p>
+              <p className="mt-2 text-2xl font-bold font-data">
+                {onboardingOverview.notStarted}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                No progress yet
+              </p>
+            </div>
 
-    <div className="rounded-lg border bg-background/40 p-4">
-      <p className="label-xs">Completed</p>
-      <p className="text-2xl font-bold mt-2 font-data">
-        {onboardingOverview.completed}
-      </p>
-      <p className="text-xs mt-2 text-muted-foreground">
-        Ready to coach
-      </p>
-    </div>
+            <div className="rounded-lg border bg-background/40 p-4">
+              <p className="label-xs">In Progress</p>
+              <p className="mt-2 text-2xl font-bold font-data">
+                {onboardingOverview.inProgress}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Work in progress
+              </p>
+            </div>
 
-    <div className="rounded-lg border bg-background/40 p-4">
-      <p className="label-xs">Below 50%</p>
-      <p className="text-2xl font-bold mt-2 font-data">
-        {onboardingOverview.stuck}
-      </p>
-      <p className="text-xs mt-2 text-muted-foreground">
-        Needs follow-up
-      </p>
-    </div>
-  </div>
+            <div className="rounded-lg border bg-background/40 p-4">
+              <p className="label-xs">Completed</p>
+              <p className="mt-2 text-2xl font-bold font-data">
+                {onboardingOverview.completed}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Ready to coach
+              </p>
+            </div>
 
-  <div>
-    <div className="flex items-center justify-between text-sm mb-2">
-      <span>Overall onboarding completion</span>
-      <span className="font-data">{onboardingOverview.averageProgress}%</span>
-    </div>
+            <div className="rounded-lg border bg-background/40 p-4">
+              <p className="label-xs">Below 50%</p>
+              <p className="mt-2 text-2xl font-bold font-data">
+                {onboardingOverview.stuck}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Needs follow-up
+              </p>
+            </div>
+          </div>
 
-    <div className="h-2 rounded-full bg-muted overflow-hidden">
-      <div
-        className="h-full bg-primary rounded-full"
-        style={{ width: `${onboardingOverview.averageProgress}%` }}
-      />
-    </div>
-  </div>
-</div>
-        <div
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+              <span>Overall onboarding completion</span>
+              <span className="font-data">
+                {onboardingOverview.averageProgress}%
+              </span>
+            </div>
+
+            <div className="h-2 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-primary"
+                style={{ width: `${onboardingOverview.averageProgress}%` }}
+              />
+            </div>
+          </div>
+        </div>
+
+        <button
+          type="button"
           onClick={() =>
             navigateToCoaches({
               coachStatus: "active",
             })
           }
-          className="card-elevated p-5 cursor-pointer transition hover:shadow-md"
+          className="card-elevated w-full cursor-pointer p-5 text-left transition hover:shadow-md xl:col-span-3"
         >
           <p className="label-xs">Active Coaches</p>
           <span className="metric-value mt-2 block">
             {data.total_active_coaches}
           </span>
           <p className="mt-2 text-xs text-muted-foreground">View team →</p>
-        </div>
+        </button>
 
-        <div
+        <button
+          type="button"
           onClick={() =>
             navigateToCoaches({
               coachStatus: "active",
               risk: "high",
             })
           }
-          className="card-elevated p-5 cursor-pointer transition hover:shadow-md"
+          className="card-elevated w-full cursor-pointer p-5 text-left transition hover:shadow-md xl:col-span-3"
         >
           <p className="label-xs">High Risk Coaches</p>
           <span className="metric-value mt-2 block">{data.high_risk_count}</span>
           <p className="mt-2 text-xs text-muted-foreground">Review now →</p>
-        </div>
+        </button>
 
-        <div className="card-elevated p-5">
+        <div className="card-elevated p-5 xl:col-span-3">
           <p className="label-xs">Evaluations This Week</p>
           <span className="metric-value mt-2 block">
             {data.evaluations_this_week}
@@ -457,7 +467,7 @@ export default function Dashboard() {
       </div>
 
       <div className="card-elevated p-5 space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-sm font-semibold">Action Center</h2>
           <span className="text-xs text-muted-foreground">
             {actionItems.length} open action{actionItems.length === 1 ? "" : "s"}
@@ -474,17 +484,17 @@ export default function Dashboard() {
                 onClick={() =>
                   navigate(`/coaches/${action.coachId}?studio=${selectedStudioId}`)
                 }
-                className="w-full flex items-center justify-between rounded-md bg-muted/40 hover:bg-muted/60 transition px-4 py-3 text-left"
+                className="flex w-full flex-col gap-3 rounded-md bg-muted/40 px-4 py-3 text-left transition hover:bg-muted/60 sm:flex-row sm:items-center sm:justify-between"
               >
-                <div>
+                <div className="min-w-0">
                   <p className="text-sm font-medium">{action.label}</p>
-                  <p className="text-xs text-muted-foreground mt-1 capitalize">
+                  <p className="mt-1 text-xs capitalize text-muted-foreground">
                     {action.type}
                   </p>
                 </div>
 
                 <span
-                  className={`text-xs px-2 py-1 rounded-md font-medium ${
+                  className={`inline-flex w-fit rounded-md px-2 py-1 text-xs font-medium ${
                     action.priority === "high"
                       ? "bg-red-500/10 text-red-400"
                       : action.priority === "medium"
@@ -500,20 +510,20 @@ export default function Dashboard() {
         )}
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-3">
-        <div className="xl:col-span-2 space-y-4">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <div className="space-y-4 xl:col-span-2">
           <div className="card-elevated p-5">
-            <div className="flex items-start justify-between mb-4">
-              <div>
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
                 <h2 className="text-sm font-semibold">
                   Team Coaching Attributes
                 </h2>
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="mt-1 text-xs text-muted-foreground">
                   Global technical and operational profile of the coaching team
                 </p>
               </div>
 
-              <div className="text-right">
+              <div className="text-left sm:text-right">
                 <p className="label-xs">Overall</p>
                 <p className="metric-value mt-1">
                   {data.team_attributes.overall}
@@ -524,14 +534,14 @@ export default function Dashboard() {
             <div className="space-y-3">
               {teamAttributes.map((attr) => (
                 <div key={attr.label}>
-                  <div className="flex items-center justify-between text-sm mb-1">
+                  <div className="mb-1 flex items-center justify-between gap-3 text-sm">
                     <span>{attr.label}</span>
                     <span className="font-data">{attr.value}</span>
                   </div>
 
-                  <div className="h-2 rounded-full bg-muted overflow-hidden">
+                  <div className="h-2 overflow-hidden rounded-full bg-muted">
                     <div
-                      className="h-full bg-primary rounded-full"
+                      className="h-full rounded-full bg-primary"
                       style={{ width: `${attr.value}%` }}
                     />
                   </div>
@@ -541,19 +551,19 @@ export default function Dashboard() {
           </div>
 
           <div className="card-elevated p-5">
-            <h2 className="text-sm font-semibold mb-4">
+            <h2 className="mb-4 text-sm font-semibold">
               Average Score by Section
             </h2>
             <div className="space-y-3">
               {sectionAverages.map((item) => (
                 <div key={item.label}>
-                  <div className="flex items-center justify-between text-sm mb-1">
+                  <div className="mb-1 flex items-center justify-between gap-3 text-sm">
                     <span>{item.label}</span>
                     <span className="font-data">{item.value}</span>
                   </div>
-                  <div className="h-2 rounded-full bg-muted overflow-hidden">
+                  <div className="h-2 overflow-hidden rounded-full bg-muted">
                     <div
-                      className="h-full bg-primary rounded-full"
+                      className="h-full rounded-full bg-primary"
                       style={{
                         width: `${Math.min((item.value / 100) * 100, 100)}%`,
                       }}
@@ -565,9 +575,9 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="space-y-4">
-          <div className="card-elevated">
-            <div className="px-5 py-4 border-b">
+        <div className="space-y-4 min-w-0">
+          <div className="card-elevated overflow-hidden">
+            <div className="border-b px-5 py-4">
               <h2 className="text-sm font-semibold">Top Performers</h2>
             </div>
             <div className="divide-y">
@@ -582,15 +592,17 @@ export default function Dashboard() {
                     onClick={() =>
                       navigate(`/coaches/${coach.id}?studio=${selectedStudioId}`)
                     }
-                    className="w-full flex items-center justify-between px-5 py-3 text-left hover:bg-muted/50 transition-colors"
+                    className="flex w-full flex-col gap-3 px-5 py-3 text-left transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
                   >
-                    <div>
-                      <p className="text-sm font-medium">{getCoachName(coach)}</p>
-                      <p className="text-xs text-muted-foreground">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">
+                        {getCoachName(coach)}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
                         {getStudioName(coach.studio_id)}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 self-start sm:self-center">
                       <span className="font-data text-sm">{avg}%</span>
                       <PerformanceBadge score={avg} />
                     </div>
@@ -600,8 +612,8 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="card-elevated p-5 card-focus">
-            <h2 className="text-sm font-semibold mb-4">Risk Distribution</h2>
+          <div className="card-elevated card-focus p-5">
+            <h2 className="mb-4 text-sm font-semibold">Risk Distribution</h2>
             <div className="space-y-3">
               {[
                 { label: "High Risk", value: data.high_risk_count },
@@ -609,13 +621,13 @@ export default function Dashboard() {
                 { label: "Low Risk", value: data.low_risk_count },
               ].map((item) => (
                 <div key={item.label}>
-                  <div className="flex items-center justify-between text-sm mb-1">
+                  <div className="mb-1 flex items-center justify-between gap-3 text-sm">
                     <span>{item.label}</span>
                     <span className="font-data">{item.value}</span>
                   </div>
-                  <div className="h-2 rounded-full bg-muted overflow-hidden">
+                  <div className="h-2 overflow-hidden rounded-full bg-muted">
                     <div
-                      className="h-full bg-primary rounded-full"
+                      className="h-full rounded-full bg-primary"
                       style={{
                         width: `${
                           data.total_active_coaches > 0
@@ -632,16 +644,16 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-3">
-        <div className="xl:col-span-2">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <div className="min-w-0 xl:col-span-2">
           <GlobalInsightsCard
             insights={insights}
             selectedStudioId={selectedStudioId}
           />
         </div>
 
-        <div className="card-elevated card-focus">
-          <div className="px-5 py-4 border-b">
+        <div className="card-elevated card-focus overflow-hidden">
+          <div className="border-b px-5 py-4">
             <h2 className="text-sm font-semibold">Coaches Needing Attention</h2>
           </div>
           <div className="divide-y">
@@ -656,15 +668,17 @@ export default function Dashboard() {
                   onClick={() =>
                     navigate(`/coaches/${coach.id}?studio=${selectedStudioId}`)
                   }
-                  className="w-full flex items-center justify-between px-5 py-3 text-left hover:bg-muted/50 transition-colors"
+                  className="flex w-full flex-col gap-3 px-5 py-3 text-left transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
                 >
-                  <div>
-                    <p className="text-sm font-medium">{getCoachName(coach)}</p>
-                    <p className="text-xs text-muted-foreground">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">
+                      {getCoachName(coach)}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
                       {getStudioName(coach.studio_id)} • {trend}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 self-start sm:self-center">
                     <span className="font-data text-sm">{avg}%</span>
                     <PerformanceBadge score={avg} />
                   </div>
@@ -675,9 +689,9 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <div className="card-elevated">
-          <div className="px-5 py-4 border-b">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <div className="card-elevated overflow-hidden">
+          <div className="border-b px-5 py-4">
             <h2 className="text-sm font-semibold">Recent Evaluations</h2>
           </div>
           <div className="divide-y">
@@ -685,15 +699,15 @@ export default function Dashboard() {
               <button
                 key={ev.id}
                 onClick={() => navigate(`/evaluations/${ev.id}`)}
-                className="w-full flex items-center justify-between px-5 py-3 text-left hover:bg-muted/50 transition-colors"
+                className="flex w-full flex-col gap-3 px-5 py-3 text-left transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
               >
-                <div>
-                  <p className="text-sm font-medium">{ev.coach_name}</p>
-                  <p className="text-xs text-muted-foreground">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{ev.coach_name}</p>
+                  <p className="truncate text-xs text-muted-foreground">
                     {ev.class_type} • {ev.class_date}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 self-start sm:self-center">
                   <span className="font-data text-sm">
                     {ev.normalized_score_percent}%
                   </span>
@@ -704,21 +718,21 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="grid gap-4">
+        <div className="grid grid-cols-1 gap-4">
           <div className="card-elevated p-5">
-            <h2 className="text-sm font-semibold mb-4">
+            <h2 className="mb-4 text-sm font-semibold">
               Performance Band Distribution
             </h2>
             <div className="space-y-3">
               {performanceBandData.map((item) => (
                 <div key={item.label}>
-                  <div className="flex items-center justify-between text-sm mb-1">
+                  <div className="mb-1 flex items-center justify-between gap-3 text-sm">
                     <span>{item.label}</span>
                     <span className="font-data">{item.value}</span>
                   </div>
-                  <div className="h-2 rounded-full bg-muted overflow-hidden">
+                  <div className="h-2 overflow-hidden rounded-full bg-muted">
                     <div
-                      className="h-full bg-primary rounded-full"
+                      className="h-full rounded-full bg-primary"
                       style={{
                         width: `${
                           filteredEvaluations.length > 0
@@ -734,7 +748,7 @@ export default function Dashboard() {
           </div>
 
           <div className="card-elevated p-5">
-            <h2 className="text-sm font-semibold mb-4">Coach Notes by Type</h2>
+            <h2 className="mb-4 text-sm font-semibold">Coach Notes by Type</h2>
             <div className="space-y-3">
               {notesByType.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
@@ -743,15 +757,15 @@ export default function Dashboard() {
               ) : (
                 notesByType.map(([type, count]) => (
                   <div key={type}>
-                    <div className="flex items-center justify-between text-sm mb-1">
+                    <div className="mb-1 flex items-center justify-between gap-3 text-sm">
                       <span className="capitalize">
                         {type.replace("_", " ")}
                       </span>
                       <span className="font-data">{count}</span>
                     </div>
-                    <div className="h-2 rounded-full bg-muted overflow-hidden">
+                    <div className="h-2 overflow-hidden rounded-full bg-muted">
                       <div
-                        className="h-full bg-primary rounded-full"
+                        className="h-full rounded-full bg-primary"
                         style={{
                           width: `${Math.min(Number(count) * 20, 100)}%`,
                         }}

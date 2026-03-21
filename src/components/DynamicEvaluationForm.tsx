@@ -18,7 +18,9 @@ export default function DynamicEvaluationForm({
   saving = false,
   onSubmit,
 }: Props) {
-  const [responses, setResponses] = useState<Record<string, number | boolean>>({});
+  const [responses, setResponses] = useState<Record<string, number | boolean>>(
+    {}
+  );
   const [notes, setNotes] = useState("");
 
   const sortedSections = useMemo(() => {
@@ -32,7 +34,7 @@ export default function DynamicEvaluationForm({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6 min-w-0">
       {sortedSections.map((section, sectionIndex) => {
         const sortedItems = [...(section.items ?? [])].sort(
           (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
@@ -41,81 +43,118 @@ export default function DynamicEvaluationForm({
         return (
           <div
             key={section.code ?? section.id ?? `section-${sectionIndex}`}
-            className="space-y-3"
+            className="space-y-3 min-w-0"
           >
             <h2 className="text-sm font-semibold">
               {section.title ?? `Section ${sectionIndex + 1}`}
             </h2>
 
-            <div className="divide-y rounded-lg border">
-              {sortedItems.map((item, itemIndex) => {
-                const itemCode =
-                  item.code ?? `${section.code ?? sectionIndex}-${itemIndex}`;
-                const itemType = item.type ?? "boolean";
-                const itemLabel = item.label ?? itemCode;
-                const value = responses[itemCode];
+            <div className="overflow-hidden rounded-lg border">
+              <div className="divide-y">
+                {sortedItems.map((item, itemIndex) => {
+                  const itemCode =
+                    item.code ?? `${section.code ?? sectionIndex}-${itemIndex}`;
+                  const itemType = item.type ?? "boolean";
+                  const itemLabel = item.label ?? itemCode;
+                  const value = responses[itemCode];
 
-                if (itemType === "boolean") {
-                  return (
-                    <div
-                      key={itemCode}
-                      className="flex items-center justify-between py-3 px-4"
-                    >
-                      <span className="text-sm">{itemLabel}</span>
-                      <div className="flex gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setResponse(itemCode, true)}
-                          className={cn(
-                            "px-3 py-1.5 text-xs font-medium rounded-md border transition-colors",
-                            value === true
-                              ? "bg-success/10 text-success border-success/30"
-                              : "hover:bg-muted"
-                          )}
-                        >
-                          Yes
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setResponse(itemCode, false)}
-                          className={cn(
-                            "px-3 py-1.5 text-xs font-medium rounded-md border transition-colors",
-                            value === false
-                              ? "bg-destructive/10 text-destructive border-destructive/30"
-                              : "hover:bg-muted"
-                          )}
-                        >
-                          No
-                        </button>
+                  if (itemType === "boolean") {
+                    return (
+                      <div
+                        key={itemCode}
+                        className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <span className="min-w-0 text-sm break-words">
+                          {itemLabel}
+                        </span>
+
+                        <div className="flex w-full gap-2 sm:w-auto sm:flex-none">
+                          <button
+                            type="button"
+                            onClick={() => setResponse(itemCode, true)}
+                            className={cn(
+                              "flex-1 rounded-md border px-3 py-2 text-xs font-medium transition-colors sm:flex-none sm:px-3 sm:py-1.5",
+                              value === true
+                                ? "border-success/30 bg-success/10 text-success"
+                                : "hover:bg-muted"
+                            )}
+                          >
+                            Yes
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setResponse(itemCode, false)}
+                            className={cn(
+                              "flex-1 rounded-md border px-3 py-2 text-xs font-medium transition-colors sm:flex-none sm:px-3 sm:py-1.5",
+                              value === false
+                                ? "border-destructive/30 bg-destructive/10 text-destructive"
+                                : "hover:bg-muted"
+                            )}
+                          >
+                            No
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  );
-                }
+                    );
+                  }
 
-                if (itemType === "scale") {
-                  const min = item.min ?? 1;
-                  const max = item.max ?? 5;
-                  const range = Array.from(
-                    { length: max - min + 1 },
-                    (_, i) => min + i
-                  );
+                  if (itemType === "scale") {
+                    const min = item.min ?? 1;
+                    const max = item.max ?? 5;
+                    const range = Array.from(
+                      { length: max - min + 1 },
+                      (_, i) => min + i
+                    );
+
+                    return (
+                      <div
+                        key={itemCode}
+                        className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <span className="min-w-0 text-sm break-words">
+                          {itemLabel}
+                        </span>
+
+                        <div className="flex flex-wrap gap-2 sm:justify-end">
+                          {range.map((optionValue) => (
+                            <button
+                              key={optionValue}
+                              type="button"
+                              onClick={() => setResponse(itemCode, optionValue)}
+                              className={cn(
+                                "h-10 min-w-10 rounded-md border px-3 text-xs font-medium transition-colors",
+                                value === optionValue
+                                  ? "border-primary bg-primary text-primary-foreground"
+                                  : "hover:bg-muted"
+                              )}
+                            >
+                              {optionValue}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
 
                   return (
                     <div
                       key={itemCode}
-                      className="flex items-center justify-between py-3 px-4"
+                      className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
                     >
-                      <span className="text-sm">{itemLabel}</span>
-                      <div className="flex gap-1">
-                        {range.map((optionValue) => (
+                      <span className="min-w-0 text-sm break-words">
+                        {itemLabel}
+                      </span>
+
+                      <div className="flex flex-wrap gap-2 sm:justify-end">
+                        {(item.options ?? []).map((optionValue) => (
                           <button
                             key={optionValue}
                             type="button"
                             onClick={() => setResponse(itemCode, optionValue)}
                             className={cn(
-                              "w-9 h-9 text-xs font-medium rounded-md border transition-colors",
+                              "rounded-md border px-3 py-2 text-xs font-medium transition-colors",
                               value === optionValue
-                                ? "bg-primary text-primary-foreground border-primary"
+                                ? "border-primary bg-primary text-primary-foreground"
                                 : "hover:bg-muted"
                             )}
                           >
@@ -125,34 +164,8 @@ export default function DynamicEvaluationForm({
                       </div>
                     </div>
                   );
-                }
-
-                return (
-                  <div
-                    key={itemCode}
-                    className="flex items-center justify-between py-3 px-4"
-                  >
-                    <span className="text-sm">{itemLabel}</span>
-                    <div className="flex gap-1 flex-wrap justify-end">
-                      {(item.options ?? []).map((optionValue) => (
-                        <button
-                          key={optionValue}
-                          type="button"
-                          onClick={() => setResponse(itemCode, optionValue)}
-                          className={cn(
-                            "px-3 py-1.5 text-xs font-medium rounded-md border transition-colors",
-                            value === optionValue
-                              ? "bg-primary text-primary-foreground border-primary"
-                              : "hover:bg-muted"
-                          )}
-                        >
-                          {optionValue}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
+                })}
+              </div>
             </div>
           </div>
         );
@@ -164,7 +177,8 @@ export default function DynamicEvaluationForm({
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Additional observations..."
-          rows={3}
+          rows={4}
+          className="w-full"
         />
       </div>
 
