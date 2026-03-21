@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import EvaluationTemplateEditor from "@/components/EvaluationTemplateEditor";
 import { Button } from "@/components/ui/button";
@@ -17,24 +18,31 @@ export default function TemplateEditorDrawer({
 }: Props) {
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 z-50">
+  return createPortal(
+    <div className="fixed inset-0 z-[99999]">
       <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-[1px]"
+        className="absolute inset-0 bg-black/60"
         onClick={onClose}
       />
 
-      <div className="absolute inset-y-0 right-0 w-full max-w-6xl bg-background border-l shadow-2xl">
+      <div className="absolute inset-y-0 right-0 z-[100000] w-full max-w-6xl border-l bg-background shadow-2xl">
         <div className="flex h-full flex-col">
-          <div className="flex items-start justify-between gap-4 border-b px-6 py-5">
+          <div className="flex items-start justify-between gap-4 border-b bg-background px-6 py-5">
             <div>
-              <h2 className="text-xl font-semibold">Manage Evaluation Templates</h2>
+              <h2 className="text-xl font-semibold">
+                Manage Evaluation Templates
+              </h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 Studio {studioName ?? studioId}
               </p>
             </div>
 
-            <Button variant="outline" size="icon" onClick={onClose}>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={onClose}
+            >
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -47,6 +55,7 @@ export default function TemplateEditorDrawer({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
