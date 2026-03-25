@@ -1,9 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "../lib/supabase";
+import { useStudio } from "@/contexts/StudioContext";
 
-// ======================
-// TYPES (ajusta conforme seu schema)
-// ======================
 export type TrainingAttendance = {
   id: string;
   session_id: string;
@@ -12,18 +10,12 @@ export type TrainingAttendance = {
   created_at?: string;
 };
 
-// ======================
-// QUERY KEY FACTORY
-// ======================
 const attendanceKeys = {
   all: ["training_attendance"] as const,
-  bySession: (sessionId: string) =>
-    ["training_attendance", sessionId] as const,
+  bySession: (studioId: string | null, sessionId: string) =>
+    ["training_attendance", studioId, sessionId] as const,
 };
 
-// ======================
-// FETCH BY SESSION
-// ======================
 const fetchAttendanceBySession = async (
   sessionId: string
 ): Promise<TrainingAttendance[]> => {
@@ -39,18 +31,18 @@ const fetchAttendanceBySession = async (
 };
 
 export const useTrainingAttendance = (sessionId: string) => {
+  const { selectedStudioId } = useStudio();
+
   return useQuery({
-    queryKey: attendanceKeys.bySession(sessionId),
+    queryKey: attendanceKeys.bySession(selectedStudioId, sessionId),
     queryFn: () => fetchAttendanceBySession(sessionId),
-    enabled: !!sessionId,
+    enabled: !!sessionId && !!selectedStudioId,
   });
 };
 
-// ======================
-// CREATE ATTENDANCE
-// ======================
 export const useCreateAttendance = () => {
   const queryClient = useQueryClient();
+  const { selectedStudioId } = useStudio();
 
   return useMutation({
     mutationFn: async (
@@ -69,17 +61,18 @@ export const useCreateAttendance = () => {
 
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
-        queryKey: attendanceKeys.bySession(variables.session_id),
+        queryKey: attendanceKeys.bySession(
+          selectedStudioId,
+          variables.session_id
+        ),
       });
     },
   });
 };
 
-// ======================
-// UPDATE ATTENDANCE
-// ======================
 export const useUpdateAttendance = () => {
   const queryClient = useQueryClient();
+  const { selectedStudioId } = useStudio();
 
   return useMutation({
     mutationFn: async (
@@ -100,18 +93,16 @@ export const useUpdateAttendance = () => {
     onSuccess: (data) => {
       if (data?.session_id) {
         queryClient.invalidateQueries({
-          queryKey: attendanceKeys.bySession(data.session_id),
+          queryKey: attendanceKeys.bySession(selectedStudioId, data.session_id),
         });
       }
     },
   });
 };
 
-// ======================
-// DELETE ATTENDANCE
-// ======================
 export const useDeleteAttendance = () => {
   const queryClient = useQueryClient();
+  const { selectedStudioId } = useStudio();
 
   return useMutation({
     mutationFn: async ({
@@ -133,7 +124,7 @@ export const useDeleteAttendance = () => {
 
     onSuccess: ({ session_id }) => {
       queryClient.invalidateQueries({
-        queryKey: attendanceKeys.bySession(session_id),
+        queryKey: attendanceKeys.bySession(selectedStudioId, session_id),
       });
     },
   });

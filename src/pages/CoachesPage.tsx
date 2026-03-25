@@ -1,29 +1,104 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Plus,
+  SlidersHorizontal,
+} from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
-import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { PerformanceBadge } from "@/components/PerformanceBadge";
 import { TrendIndicator } from "@/components/TrendIndicator";
-import { getCoachName, getStudioName } from "@/data/helpers";
-import { getSelectedStudioSession } from "@/data/session";
+import { getCoachName } from "@/data/helpers";
 import { useCoaches } from "@/hooks/useCoaches";
 import { useEvaluations } from "@/hooks/useEvaluations";
 import { useStudios } from "@/hooks/useStudios";
-import { computeCoachMetrics } from "@/utils/metrics";
+import { useCoachEvaluationCycles } from "@/hooks/useCoachEvaluationCycles";
+import { computeAllCoachMetrics } from "@/utils/metrics";
+import { calculateCoachRisk } from "@/utils/risk";
+import { coachNotes } from "@/data/coachNotes";
 import { Coach, CoachOnboarding } from "@/lib/types";
-
-type EvaluationCycleStatus = "overdue" | "due_soon" | "on_track" | "none";
-
-type CoachEvaluationCycle = {
-  coach_id: string;
-  evaluation_status?: "overdue" | "due_soon" | "on_track" | null;
-};
+import { useStudio } from "@/contexts/StudioContext";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 type CoachWithCycle = Coach & {
-  evaluationCycle: CoachEvaluationCycle | null;
+  evaluationCycle: {
+    coach_id: string;
+    evaluation_status?: "overdue" | "due_soon" | "on_track" | null;
+  } | null;
 };
+
+function SurfaceCard({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`rounded-2xl border border-white/8 bg-white/[0.02] shadow-[0_1px_0_rgba(255,255,255,0.03)_inset] ${className}`}
+    >
+      {children}
+    </div>
+  );
+}
+
+function SectionHeader({
+  eyebrow,
+  title,
+  description,
+  right,
+}: {
+  eyebrow?: string;
+  title: string;
+  description?: string;
+  right?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0">
+        {eyebrow ? (
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/80">
+            {eyebrow}
+          </p>
+        ) : null}
+        <h2 className="mt-1 text-sm font-semibold tracking-tight">{title}</h2>
+        {description ? (
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {description}
+          </p>
+        ) : null}
+      </div>
+
+      {right ? <div className="shrink-0">{right}</div> : null}
+    </div>
+  );
+}
+
+function FilterChip({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean;
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <Button size="sm" variant={active ? "default" : "outline"} onClick={onClick}>
+      {children}
+    </Button>
+  );
+}
 
 function getOnboardingBadge(onboarding?: CoachOnboarding | null) {
   if (!onboarding) return null;
@@ -31,26 +106,26 @@ function getOnboardingBadge(onboarding?: CoachOnboarding | null) {
   if (onboarding.status === "completed") {
     return {
       label: "Ready",
-      className: "bg-green-100 text-green-700 border-green-200",
+      className: "border-green-500/15 bg-green-500/10 text-green-300",
     };
   }
 
   if (onboarding.status === "in_progress") {
     return {
       label: "Onboarding",
-      className: "bg-amber-100 text-amber-700 border-amber-200",
+      className: "border-amber-500/15 bg-amber-500/10 text-amber-300",
     };
   }
 
   return {
-    label: "Not started",
-    className: "bg-muted text-muted-foreground border-border",
+    label: "Not Started",
+    className: "border-white/10 bg-white/[0.04] text-muted-foreground",
   };
 }
 
 function matchesOnboardingFilter(
   onboarding: CoachOnboarding | null | undefined,
-  filter: string
+  filter: string,
 ) {
   const status = onboarding?.status ?? null;
 
@@ -68,7 +143,7 @@ function matchesOnboardingFilter(
 
 function matchesEvaluationStatusFilter(
   coach: CoachWithCycle,
-  filter: string | null
+  filter: string | null,
 ) {
   const evaluationStatus = coach.evaluationCycle?.evaluation_status ?? "none";
 
@@ -84,82 +159,106 @@ function matchesEvaluationStatusFilter(
 export default function CoachesPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const {
+  selectedStudioId,
+  selectedStudio,
+  isAllStudios,
+  setSelectedStudioId,
+  isReady,
+} = useStudio();
 
-  const { coaches, loading: coachesLoading } = useCoaches();
-  const { studios, loading: studiosLoading } = useStudios();
-  const { evaluations, loading: evaluationsLoading } = useEvaluations();
-
-  const [cycles, setCycles] = useState<CoachEvaluationCycle[]>([]);
-
-  const coachStatusFilter = searchParams.get("coachStatus") || "active";
-  const evaluationStatusFilter = searchParams.get("evaluationStatus");
-  const onboardingFilter = searchParams.get("onboarding") || "all";
-  const studioFilter = searchParams.get("studio");
+  const routeStudioId = searchParams.get("studio");
 
   useEffect(() => {
-    async function fetchCycles() {
-      const { data, error } = await supabase
-        .from("coach_evaluation_cycle")
-        .select("coach_id, evaluation_status");
-
-      if (error) {
-        console.error("Failed to fetch coach evaluation cycles:", error);
-        return;
-      }
-
-      setCycles((data as CoachEvaluationCycle[]) ?? []);
+    if (!routeStudioId) return;
+    if (routeStudioId !== selectedStudioId) {
+      setSelectedStudioId(routeStudioId as string | "all");
     }
+  }, [routeStudioId, selectedStudioId, setSelectedStudioId]);
 
-    fetchCycles();
-  }, []);
+  const {
+    coaches,
+    loading: coachesLoading,
+    fetching: coachesFetching,
+  } = useCoaches();
+
+  const { studios, loading: studiosLoading } = useStudios();
+
+  const {
+    evaluations,
+    loading: evaluationsLoading,
+    fetching: evaluationsFetching,
+  } = useEvaluations();
+
+  const {
+    cycles,
+    loading: cyclesLoading,
+    fetching: cyclesFetching,
+  } = useCoachEvaluationCycles();
+
+  const coachStatusFilter = searchParams.get("coachStatus") || "active";
+const evaluationStatusFilter = searchParams.get("evaluationStatus");
+const onboardingFilter = searchParams.get("onboarding") || "all";
+const riskFilter = searchParams.get("risk");
+const trendFilter = searchParams.get("trend");
+
+  const hasNonDefaultFilters =
+  coachStatusFilter !== "active" ||
+  !!evaluationStatusFilter ||
+  onboardingFilter !== "all" ||
+  !!riskFilter ||
+  !!trendFilter;
+
+  const [filtersOpen, setFiltersOpen] = useState(hasNonDefaultFilters);
+
+  useEffect(() => {
+    if (hasNonDefaultFilters) {
+      setFiltersOpen(true);
+    }
+  }, [hasNonDefaultFilters]);
 
   function updateSearchParam(key: string, value: string, removeOnAll = false) {
-    const nextParams = new URLSearchParams(searchParams);
+  const nextParams = new URLSearchParams(searchParams);
 
-    if (removeOnAll && value === "all") {
-      nextParams.delete(key);
-    } else {
-      nextParams.set(key, value);
-    }
-
-    setSearchParams(nextParams);
+  if (removeOnAll && value === "all") {
+    nextParams.delete(key);
+  } else {
+    nextParams.set(key, value);
   }
 
-  const accessibleStudioIds = useMemo(
-    () => studios.map((studio) => studio.id),
-    [studios]
-  );
+  if (selectedStudioId && selectedStudioId !== "all") {
+    nextParams.set("studio", selectedStudioId);
+  } else {
+    nextParams.delete("studio");
+  }
 
-  const studioParam = searchParams.get("studio");
-  const selectedStudioId = studioParam ?? getSelectedStudioSession();
+  setSearchParams(nextParams);
+}
 
-  const selectedStudioName =
-    selectedStudioId === "all"
-      ? "All Studios"
-      : studios.find((studio) => studio.id === selectedStudioId)?.name ?? "";
+  const studioNameMap = useMemo(() => {
+    return new Map(studios.map((studio) => [studio.id, studio.name]));
+  }, [studios]);
+
+  const selectedStudioName = isAllStudios
+    ? "All Studios"
+    : selectedStudio?.name ?? "Selected Studio";
 
   const studioScopedCoaches = useMemo(() => {
-    return coaches.filter((coach) => {
-      const hasAccess = accessibleStudioIds.includes(coach.studio_id);
-      const matchesStudio =
-        !studioFilter || studioFilter === "all"
-          ? true
-          : coach.studio_id === studioFilter;
+    if (isAllStudios) return coaches;
+    if (!selectedStudioId) return [];
+    return coaches.filter((coach) => coach.studio_id === selectedStudioId);
+  }, [coaches, selectedStudioId, isAllStudios]);
 
-      return hasAccess && matchesStudio;
-    });
-  }, [coaches, accessibleStudioIds, studioFilter]);
+  const cycleMap = useMemo(() => {
+    return new Map(cycles.map((cycle) => [cycle.coach_id, cycle]));
+  }, [cycles]);
 
   const coachesWithCycle = useMemo<CoachWithCycle[]>(() => {
-    return studioScopedCoaches.map((coach) => {
-      const cycle = cycles.find((item) => item.coach_id === coach.id) ?? null;
-
-      return {
-        ...coach,
-        evaluationCycle: cycle,
-      };
-    });
-  }, [studioScopedCoaches, cycles]);
+    return studioScopedCoaches.map((coach) => ({
+      ...coach,
+      evaluationCycle: cycleMap.get(coach.id) ?? null,
+    }));
+  }, [studioScopedCoaches, cycleMap]);
 
   const statusFilteredCoaches = useMemo(() => {
     return coachesWithCycle.filter((coach) => {
@@ -170,184 +269,395 @@ export default function CoachesPage() {
 
   const evaluationFilteredCoaches = useMemo(() => {
     return statusFilteredCoaches.filter((coach) =>
-      matchesEvaluationStatusFilter(coach, evaluationStatusFilter)
+      matchesEvaluationStatusFilter(coach, evaluationStatusFilter),
     );
   }, [statusFilteredCoaches, evaluationStatusFilter]);
 
   const finalFilteredCoaches = useMemo(() => {
     return evaluationFilteredCoaches.filter((coach) =>
-      matchesOnboardingFilter(coach.onboarding, onboardingFilter)
+      matchesOnboardingFilter(coach.onboarding, onboardingFilter),
     );
   }, [evaluationFilteredCoaches, onboardingFilter]);
 
-  if (coachesLoading || studiosLoading || evaluationsLoading) {
-    return <div className="p-6">Loading coaches...</div>;
+  const evaluationScopedCoachIds = useMemo(() => {
+  return new Set(evaluationFilteredCoaches.map((coach) => coach.id));
+}, [evaluationFilteredCoaches]);
+
+const evaluationScopedEvaluations = useMemo(() => {
+  return evaluations.filter((evaluation) =>
+    evaluationScopedCoachIds.has(evaluation.coach_id),
+  );
+}, [evaluations, evaluationScopedCoachIds]);
+
+const metricsMap = useMemo(() => {
+  return computeAllCoachMetrics(
+    evaluationFilteredCoaches,
+    evaluationScopedEvaluations,
+  );
+}, [evaluationFilteredCoaches, evaluationScopedEvaluations]);
+
+const riskAndTrendFilteredCoaches = useMemo(() => {
+  return finalFilteredCoaches.filter((coach) => {
+    const metrics = metricsMap.get(coach.id);
+    if (!metrics) return !riskFilter && !trendFilter;
+
+    const notesForCoach = coachNotes.filter((note) => note.coach_id === coach.id);
+    const risk = calculateCoachRisk(metrics, notesForCoach);
+
+    const matchesRisk =
+      !riskFilter ||
+      (riskFilter === "high" && risk.level === "High") ||
+      (riskFilter === "moderate" && risk.level === "Moderate") ||
+      (riskFilter === "low" && risk.level === "Low");
+
+    const matchesTrend = !trendFilter || metrics.trend === trendFilter;
+
+    return matchesRisk && matchesTrend;
+  });
+}, [finalFilteredCoaches, metricsMap, riskFilter, trendFilter]);
+
+const visibleCoachIds = useMemo(() => {
+  return new Set(riskAndTrendFilteredCoaches.map((coach) => coach.id));
+}, [riskAndTrendFilteredCoaches]);
+
+const visibleEvaluations = useMemo(() => {
+  return evaluations.filter((evaluation) =>
+    visibleCoachIds.has(evaluation.coach_id),
+  );
+}, [evaluations, visibleCoachIds]);
+
+const summary = useMemo(() => {
+  const active = riskAndTrendFilteredCoaches.filter(
+    (coach) => coach.status === "active",
+  ).length;
+  const inactive = riskAndTrendFilteredCoaches.filter(
+    (coach) => coach.status === "inactive",
+  ).length;
+  const onboardingIncomplete = riskAndTrendFilteredCoaches.filter((coach) =>
+    matchesOnboardingFilter(coach.onboarding, "incomplete"),
+  ).length;
+  const overdue = riskAndTrendFilteredCoaches.filter(
+    (coach) => coach.evaluationCycle?.evaluation_status === "overdue",
+  ).length;
+
+  return { active, inactive, onboardingIncomplete, overdue };
+}, [riskAndTrendFilteredCoaches]);
+
+  const isInitialLoading =
+  !isReady ||
+  (!isAllStudios && !selectedStudioId) ||
+  (coachesLoading && coaches.length === 0) ||
+  (evaluationsLoading && evaluations.length === 0) ||
+  studiosLoading ||
+  cyclesLoading;
+
+  const isRefreshing = coachesFetching || evaluationsFetching || cyclesFetching;
+
+  if (isInitialLoading) {
+    return (
+      <div className="p-6 text-sm text-muted-foreground">Loading coaches...</div>
+    );
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Coaches</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Studio - {selectedStudioName}
-          </p>
+      <SurfaceCard className="p-5 sm:p-6">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/80">
+              Team Directory
+            </p>
+            <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+              Coaches
+            </h1>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
+              {isAllStudios
+                ? "View coach status, onboarding progress, evaluation cadence, and performance trends across all studios."
+                : `View coach status, onboarding progress, recent evaluation signals, and performance trends across ${selectedStudioName.toLowerCase()}.`}
+            </p>
+
+            {isRefreshing && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Updating coach data...
+              </p>
+            )}
+          </div>
+
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
+            <Button
+              size="sm"
+              onClick={() => navigate("/coaches/new")}
+              className="w-full sm:w-auto"
+            >
+              <Plus className="mr-1.5 h-4 w-4" />
+              Add Coach
+            </Button>
+          </div>
         </div>
+      </SurfaceCard>
 
-        <Button size="sm" onClick={() => navigate("/coaches/new")}>
-          <Plus className="mr-1.5 h-4 w-4" />
-          Add Coach
-        </Button>
-      </div>
-
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            variant={coachStatusFilter === "active" ? "default" : "outline"}
-            onClick={() => updateSearchParam("coachStatus", "active")}
-          >
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <SurfaceCard className="p-4">
+          <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground/80">
             Active
-          </Button>
+          </p>
+          <p className="mt-2 font-data text-2xl font-semibold tracking-tight">
+            {summary.active}
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Visible under the current filters
+          </p>
+        </SurfaceCard>
 
-          <Button
-            size="sm"
-            variant={coachStatusFilter === "inactive" ? "default" : "outline"}
-            onClick={() => updateSearchParam("coachStatus", "inactive")}
-          >
+        <SurfaceCard className="p-4">
+          <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground/80">
             Inactive
-          </Button>
+          </p>
+          <p className="mt-2 font-data text-2xl font-semibold tracking-tight">
+            {summary.inactive}
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Archived or not currently active
+          </p>
+        </SurfaceCard>
 
-          <Button
-            size="sm"
-            variant={coachStatusFilter === "all" ? "default" : "outline"}
-            onClick={() => updateSearchParam("coachStatus", "all")}
-          >
-            All
-          </Button>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            variant={!evaluationStatusFilter ? "default" : "outline"}
-            onClick={() =>
-              updateSearchParam("evaluationStatus", "all", true)
-            }
-          >
-            All Eval
-          </Button>
-
-          <Button
-            size="sm"
-            variant={evaluationStatusFilter === "overdue" ? "default" : "outline"}
-            onClick={() => updateSearchParam("evaluationStatus", "overdue")}
-          >
-            Overdue
-          </Button>
-
-          <Button
-            size="sm"
-            variant={evaluationStatusFilter === "due-soon" ? "default" : "outline"}
-            onClick={() => updateSearchParam("evaluationStatus", "due-soon")}
-          >
-            Due Soon
-          </Button>
-
-          <Button
-            size="sm"
-            variant={evaluationStatusFilter === "on-track" ? "default" : "outline"}
-            onClick={() => updateSearchParam("evaluationStatus", "on-track")}
-          >
-            On Track
-          </Button>
-
-          <Button
-            size="sm"
-            variant={evaluationStatusFilter === "none" ? "default" : "outline"}
-            onClick={() => updateSearchParam("evaluationStatus", "none")}
-          >
-            None
-          </Button>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            variant={onboardingFilter === "all" ? "default" : "outline"}
-            onClick={() => updateSearchParam("onboarding", "all", true)}
-          >
-            All Onboarding
-          </Button>
-
-          <Button
-            size="sm"
-            variant={onboardingFilter === "incomplete" ? "default" : "outline"}
-            onClick={() => updateSearchParam("onboarding", "incomplete")}
-          >
+        <SurfaceCard className="p-4">
+          <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground/80">
             Onboarding Incomplete
-          </Button>
+          </p>
+          <p className="mt-2 font-data text-2xl font-semibold tracking-tight">
+            {summary.onboardingIncomplete}
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Not started or still in progress
+          </p>
+        </SurfaceCard>
 
-          <Button
-            size="sm"
-            variant={onboardingFilter === "completed" ? "default" : "outline"}
-            onClick={() => updateSearchParam("onboarding", "completed")}
-          >
-            Ready
-          </Button>
-
-          <Button
-            size="sm"
-            variant={onboardingFilter === "not_started" ? "default" : "outline"}
-            onClick={() => updateSearchParam("onboarding", "not_started")}
-          >
-            Not Started
-          </Button>
-        </div>
+        <SurfaceCard className="p-4">
+          <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground/80">
+            Overdue Evaluations
+          </p>
+          <p className="mt-2 font-data text-2xl font-semibold tracking-tight">
+            {summary.overdue}
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Immediate evaluation follow-up required
+          </p>
+        </SurfaceCard>
       </div>
 
-      <div className="card-elevated overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b bg-muted/30">
-              <th className="px-5 py-3 text-left label-xs">Coach</th>
-              <th className="px-5 py-3 text-left label-xs">Studio</th>
-              <th className="px-5 py-3 text-left label-xs">Role</th>
-              <th className="px-5 py-3 text-left label-xs">Onboarding</th>
-              <th className="px-5 py-3 text-left label-xs">Last Eval</th>
-              <th className="px-5 py-3 text-left label-xs">Avg Score</th>
-              <th className="px-5 py-3 text-left label-xs">Trend</th>
-            </tr>
-          </thead>
+      <SurfaceCard className="p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/80">
+              Filters
+            </p>
+            <h2 className="mt-1 text-sm font-semibold tracking-tight">
+              Refine Coach View
+            </h2>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              Use status, evaluation cadence, and onboarding state to narrow the roster.
+            </p>
+          </div>
 
-          <tbody className="divide-y">
-            {finalFilteredCoaches.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-5 py-10 text-center">
+          <div className="flex items-center gap-2">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/8 bg-white/[0.03] px-3 py-1 text-[11px] text-muted-foreground">
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              {riskAndTrendFilteredCoaches.length} result
+{riskAndTrendFilteredCoaches.length === 1 ? "" : "s"}
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setFiltersOpen((prev) => !prev)}
+              className="gap-1.5"
+            >
+              {filtersOpen ? (
+                <>
+                  <ChevronUp className="h-4 w-4" />
+                  Hide
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="h-4 w-4" />
+                  Show
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+
+        {filtersOpen && (
+          <div className="mt-4 space-y-4">
+            <div>
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground/80">
+                Coach Status
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <FilterChip
+                  active={coachStatusFilter === "active"}
+                  onClick={() => updateSearchParam("coachStatus", "active")}
+                >
+                  Active
+                </FilterChip>
+
+                <FilterChip
+                  active={coachStatusFilter === "inactive"}
+                  onClick={() => updateSearchParam("coachStatus", "inactive")}
+                >
+                  Inactive
+                </FilterChip>
+
+                <FilterChip
+                  active={coachStatusFilter === "all"}
+                  onClick={() => updateSearchParam("coachStatus", "all")}
+                >
+                  All
+                </FilterChip>
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground/80">
+                Evaluation Status
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <FilterChip
+                  active={!evaluationStatusFilter}
+                  onClick={() =>
+                    updateSearchParam("evaluationStatus", "all", true)
+                  }
+                >
+                  All Eval
+                </FilterChip>
+
+                <FilterChip
+                  active={evaluationStatusFilter === "overdue"}
+                  onClick={() => updateSearchParam("evaluationStatus", "overdue")}
+                >
+                  Overdue
+                </FilterChip>
+
+                <FilterChip
+                  active={evaluationStatusFilter === "due-soon"}
+                  onClick={() =>
+                    updateSearchParam("evaluationStatus", "due-soon")
+                  }
+                >
+                  Due Soon
+                </FilterChip>
+
+                <FilterChip
+                  active={evaluationStatusFilter === "on-track"}
+                  onClick={() =>
+                    updateSearchParam("evaluationStatus", "on-track")
+                  }
+                >
+                  On Track
+                </FilterChip>
+
+                <FilterChip
+                  active={evaluationStatusFilter === "none"}
+                  onClick={() => updateSearchParam("evaluationStatus", "none")}
+                >
+                  None
+                </FilterChip>
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground/80">
+                Onboarding
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <FilterChip
+                  active={onboardingFilter === "all"}
+                  onClick={() => updateSearchParam("onboarding", "all", true)}
+                >
+                  All Onboarding
+                </FilterChip>
+
+                <FilterChip
+                  active={onboardingFilter === "incomplete"}
+                  onClick={() => updateSearchParam("onboarding", "incomplete")}
+                >
+                  Incomplete
+                </FilterChip>
+
+                <FilterChip
+                  active={onboardingFilter === "completed"}
+                  onClick={() => updateSearchParam("onboarding", "completed")}
+                >
+                  Ready
+                </FilterChip>
+
+                <FilterChip
+                  active={onboardingFilter === "not_started"}
+                  onClick={() => updateSearchParam("onboarding", "not_started")}
+                >
+                  Not Started
+                </FilterChip>
+              </div>
+            </div>
+          </div>
+        )}
+      </SurfaceCard>
+
+      <SurfaceCard className="overflow-hidden">
+        <div className="border-b border-white/8 px-5 py-4">
+          <SectionHeader
+            title="Coach Roster"
+            description="Click any coach to open the full performance profile."
+          />
+        </div>
+
+        <Table className="border-0 bg-transparent">
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead>Coach</TableHead>
+              <TableHead>Studio</TableHead>
+              <TableHead>Role</TableHead>
+              <TableHead>Onboarding</TableHead>
+              <TableHead>Last Eval</TableHead>
+              <TableHead>Avg Score</TableHead>
+              <TableHead>Trend</TableHead>
+            </TableRow>
+          </TableHeader>
+
+          <TableBody>
+            {riskAndTrendFilteredCoaches.length === 0 ? (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={7} className="px-5 py-12 text-center">
                   <div className="space-y-1">
                     <p className="text-sm font-medium">No coaches found</p>
                     <p className="text-sm text-muted-foreground">
                       No coaches match the current filters.
                     </p>
                   </div>
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ) : (
-              finalFilteredCoaches.map((coach) => {
-                const metrics = computeCoachMetrics(coach.id, evaluations);
+              riskAndTrendFilteredCoaches.map((coach) => {
+                const metrics = metricsMap.get(coach.id);
                 const onboardingBadge = getOnboardingBadge(coach.onboarding);
 
                 return (
-                  <tr
+                  <TableRow
                     key={coach.id}
                     onClick={() =>
-                      navigate(`/coaches/${coach.id}?studio=${selectedStudioId}`)
+                      navigate(
+  isAllStudios
+    ? `/coaches/${coach.id}`
+    : `/coaches/${coach.id}?studio=${coach.studio_id}`,
+)
                     }
-                    className="cursor-pointer transition-colors hover:bg-muted/40"
+                    className="cursor-pointer"
                   >
-                    <td className="px-5 py-3">
+                    <TableCell className="px-5 py-3">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-primary/10 text-xs font-semibold text-primary">
                           {coach.first_name?.[0]}
                           {coach.last_name?.[0]}
                         </div>
@@ -368,26 +678,26 @@ export default function CoachesPage() {
                           )}
                         </div>
                       </div>
-                    </td>
+                    </TableCell>
 
-                    <td className="px-5 py-3 text-sm text-muted-foreground">
-                      {getStudioName(coach.studio_id)}
-                    </td>
+                    <TableCell className="px-5 py-3 text-sm text-muted-foreground">
+                      {studioNameMap.get(coach.studio_id) ?? "Unknown"}
+                    </TableCell>
 
-                    <td className="px-5 py-3 text-sm text-muted-foreground">
+                    <TableCell className="px-5 py-3 text-sm text-muted-foreground">
                       {coach.role_title || "—"}
-                    </td>
+                    </TableCell>
 
-                    <td className="px-5 py-3">
+                    <TableCell className="px-5 py-3">
                       {coach.onboarding ? (
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium">
                             {coach.onboarding.progress}%
                           </span>
 
-                          <div className="h-2 w-20 overflow-hidden rounded-full bg-muted">
+                          <div className="h-2 w-20 overflow-hidden rounded-full bg-white/[0.05]">
                             <div
-                              className="h-full bg-foreground/70 transition-all duration-300"
+                              className="h-full bg-primary transition-all duration-300"
                               style={{ width: `${coach.onboarding.progress}%` }}
                             />
                           </div>
@@ -395,14 +705,15 @@ export default function CoachesPage() {
                       ) : (
                         <span className="text-sm text-muted-foreground">—</span>
                       )}
-                    </td>
+                    </TableCell>
 
-                    <td className="px-5 py-3 text-sm text-muted-foreground">
-                      {metrics.latest_evaluation?.class_date || "—"}
-                    </td>
+                    <TableCell className="px-5 py-3 text-sm text-muted-foreground">
+                      {metrics?.latest_evaluation?.class_date || "—"}
+                    </TableCell>
 
-                    <td className="px-5 py-3">
-                      {metrics.average_score !== null ? (
+                    <TableCell className="px-5 py-3">
+                      {metrics?.average_score !== null &&
+                      metrics?.average_score !== undefined ? (
                         <div className="flex items-center gap-2">
                           <span className="font-data text-sm">
                             {metrics.average_score}%
@@ -412,18 +723,18 @@ export default function CoachesPage() {
                       ) : (
                         <span className="text-sm text-muted-foreground">—</span>
                       )}
-                    </td>
+                    </TableCell>
 
-                    <td className="px-5 py-3">
-                      <TrendIndicator trend={metrics.trend} />
-                    </td>
-                  </tr>
+                    <TableCell className="px-5 py-3">
+                      <TrendIndicator trend={metrics?.trend ?? "stable"} />
+                    </TableCell>
+                  </TableRow>
                 );
               })
             )}
-          </tbody>
-        </table>
-      </div>
+          </TableBody>
+        </Table>
+      </SurfaceCard>
     </div>
   );
 }

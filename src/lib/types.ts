@@ -3,8 +3,9 @@
 export interface Studio {
   id: string;
   name: string;
-  city: string;
-  state: string;
+  created_at?: string;
+  city?: string;
+  state?: string;
 }
 
 export interface Coach {
@@ -16,8 +17,14 @@ export interface Coach {
   role_title: string;
   hire_date: string;
   status: "active" | "inactive";
+
+  // Compatibility aliases for legacy UI usage
+  name?: string;
+  full_name?: string;
+
   onboarding?: CoachOnboarding;
 }
+
 export type OnboardingStatus =
   | "not_started"
   | "in_progress"
@@ -49,8 +56,10 @@ export interface CoachOnboarding {
     }[];
   }[];
 }
+
 export interface Evaluation {
   id: string;
+  studio_id: string;
   coach_id: string;
   evaluator_name: string;
   class_date: string;
@@ -58,15 +67,33 @@ export interface Evaluation {
   class_name: string;
   class_type: string;
   class_size: number;
+
   pre_class_score: number;
   first_timer_intro_score: number;
   intro_score: number;
   class_score: number;
   post_workout_score: number;
+
+  class_performance_score?: number | null;
+  execution_score?: number | null;
+  experience_score?: number | null;
+  green_star_score?: number | null;
+  performance_level?: string | null;
+
   final_score: number;
   normalized_score_percent: number;
   notes_general: string;
   created_at: string;
+
+  coach_role?: string | null;
+  shift_type?: string | null;
+  green_star_present?: boolean | null;
+
+  template_id?: string | null;
+  template_version?: number | null;
+  responses_json?: Record<string, number | boolean> | null;
+  template_snapshot?: unknown | null;
+
   responses?: EvaluationResponse[];
 }
 
@@ -159,11 +186,25 @@ export interface CoachInsight {
   created_at: string;
 }
 
+export interface CoachAttributes {
+  presence: number;
+  coaching: number;
+  engagement: number;
+  knowledge: number;
+  professionalism: number;
+  retention: number;
+  overall: number;
+}
+
 // ── Dashboard data ──
 export interface DashboardData {
   team_average_score: number;
   top_performing_coaches: { coach: Coach; avg: number }[];
-  coaches_needing_attention: { coach: Coach; avg: number; trend: TrendDirection }[];
+  coaches_needing_attention: {
+    coach: Coach;
+    avg: number;
+    trend: TrendDirection;
+  }[];
   recent_evaluations: (Evaluation & { coach_name: string })[];
   active_dev_plans_count: number;
   evaluations_this_week: number;
@@ -195,6 +236,33 @@ export interface DashboardData {
   };
 
   notes_by_type: Record<string, number>;
+
+  weakest_section: {
+    key: string;
+    label: string;
+    value: number;
+  } | null;
+
+  strongest_section: {
+    key: string;
+    label: string;
+    value: number;
+  } | null;
+
+  declining_coaches_count: number;
+  improving_coaches_count: number;
+  coaches_without_evaluations: number;
+  coaches_overdue: number;
+  most_common_low_score_area: string | null;
+  team_trend_direction: TrendDirection;
+  average_recent_score: number;
+  average_previous_score: number;
+
+  team_priorities: {
+    biggest_issue: string;
+    immediate_action: string;
+    improvement_opportunity: string;
+  };
 }
 
 // ── Performance band ──
@@ -203,6 +271,7 @@ export interface PerformanceBand {
   className: string;
   minScore: number;
 }
+
 // ── Coach notes / timeline ──
 export type CoachNoteType =
   | "performance"
@@ -225,15 +294,7 @@ export interface CoachNote {
   description: string;
   created_by: string;
 }
-export interface CoachAttributes {
-  presence: number
-  coaching: number
-  engagement: number
-  knowledge: number
-  professionalism: number
-  retention: number
-  overall: number
-}
+
 export type UserRole =
   | "admin"
   | "district_manager"
@@ -247,6 +308,10 @@ export interface User {
   email: string;
   role: UserRole;
   status: "active" | "inactive";
+
+  // Compatibility aliases for legacy UI usage
+  name?: string;
+  full_name?: string;
 }
 
 export interface UserStudioAccess {
@@ -256,6 +321,7 @@ export interface UserStudioAccess {
   access_level: "manager" | "viewer" | "coach";
   is_primary: boolean;
 }
+
 export type EvaluationInputType =
   | "score"
   | "select"
@@ -264,7 +330,7 @@ export type EvaluationInputType =
 
 export interface EvaluationTemplate {
   id: string;
-  studio_id: string; // IMPORTANTE: string (não uuid)
+  studio_id: string;
   name: string;
   description?: string | null;
   is_active: boolean;

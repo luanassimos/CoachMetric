@@ -1,9 +1,16 @@
-export let selectedStudioSession: string = "all";
+const SELECTED_STUDIO_STORAGE_KEY = "coachmetric.selectedStudioId";
 
-export function setSelectedStudioSession(value: string) {
-  selectedStudioSession = value;
+export function getSelectedStudioSession(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.sessionStorage.getItem(SELECTED_STUDIO_STORAGE_KEY);
 }
 
-export function getSelectedStudioSession() {
-  return selectedStudioSession;
+export function setSelectedStudioSession(studioId: string) {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(SELECTED_STUDIO_STORAGE_KEY, studioId);
+}
+
+export function clearSelectedStudioSession() {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.removeItem(SELECTED_STUDIO_STORAGE_KEY);
 }

@@ -4,11 +4,17 @@ function makeTextId(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export async function fetchTrainingSessions() {
-  const { data, error } = await supabase
+export async function fetchTrainingSessions(studioId?: string) {
+  let query = supabase
     .from("training_sessions")
     .select("*")
     .order("session_date", { ascending: false });
+
+  if (studioId) {
+    query = query.eq("studio_id", studioId);
+  }
+
+  const { data, error } = await query;
 
   if (error) throw error;
   return data ?? [];
@@ -30,7 +36,12 @@ export async function createTrainingSession(input: {
   session_date: string;
   topic?: string;
   facilitator_name?: string;
-  studio_id?: string;
+  studio_id: string;
+  description?: string;
+  goals?: string;
+  notes?: string;
+  material_url?: string;
+  material_name?: string;
 }) {
   const payload = {
     id: makeTextId("ts"),
@@ -38,10 +49,13 @@ export async function createTrainingSession(input: {
     session_date: input.session_date,
     topic: input.topic?.trim() || null,
     facilitator_name: input.facilitator_name?.trim() || null,
-    studio_id: input.studio_id?.trim() || null,
+    studio_id: input.studio_id.trim(),
+    description: input.description?.trim() || null,
+    goals: input.goals?.trim() || null,
+    notes: input.notes?.trim() || null,
+    material_url: input.material_url?.trim() || null,
+    material_name: input.material_name?.trim() || null,
   };
-
-  console.log("CREATING TRAINING SESSION:", payload);
 
   const { data, error } = await supabase
     .from("training_sessions")
@@ -60,20 +74,20 @@ export async function updateTrainingSession(
     session_date: string;
     topic?: string;
     facilitator_name?: string;
-    studio_id?: string;
+    studio_id: string;
     description?: string;
     goals?: string;
     notes?: string;
     material_url?: string;
     material_name?: string;
-  }
+  },
 ) {
   const payload = {
     title: input.title.trim(),
     session_date: input.session_date,
     topic: input.topic?.trim() || null,
     facilitator_name: input.facilitator_name?.trim() || null,
-    studio_id: input.studio_id?.trim() || null,
+    studio_id: input.studio_id.trim(),
     description: input.description?.trim() || null,
     goals: input.goals?.trim() || null,
     notes: input.notes?.trim() || null,
@@ -105,6 +119,29 @@ export async function fetchTrainingAttendance() {
   const { data, error } = await supabase
     .from("training_attendance")
     .select("*");
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function fetchTrainingAttendanceByStudio(studioId: string) {
+  const { data: sessions, error: sessionsError } = await supabase
+    .from("training_sessions")
+    .select("id")
+    .eq("studio_id", studioId);
+
+  if (sessionsError) throw sessionsError;
+
+  const sessionIds = (sessions ?? []).map((session) => session.id);
+
+  if (sessionIds.length === 0) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("training_attendance")
+    .select("*")
+    .in("training_session_id", sessionIds);
 
   if (error) throw error;
   return data ?? [];
@@ -157,8 +194,6 @@ export async function saveTrainingAttendance(input: {
     attended: input.attended,
     notes: input.notes?.trim() || null,
   };
-
-  console.log("CREATING TRAINING ATTENDANCE:", payload);
 
   const { data, error } = await supabase
     .from("training_attendance")

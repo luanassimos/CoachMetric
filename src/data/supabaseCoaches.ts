@@ -1,50 +1,119 @@
-import {
-  calculateOnboardingProgress,
-  getOnboardingStatus,
-} from "../utils/onboarding";
 import { supabase } from "@/lib/supabase";
-import { createOnboardingTemplate } from "@/data/onboardingTemplate";
+import type { Coach } from "@/lib/types";
 
-export async function fetchCoaches() {
-  const { data, error } = await supabase
+function makeTextId(prefix: string) {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+type CreateCoachInput = {
+  first_name: string;
+  last_name: string;
+  email?: string;
+  studio_id: string;
+  role_title?: string;
+  hire_date?: string;
+  status?: "active" | "inactive" | string;
+};
+
+type UpdateCoachInput = Partial<{
+  first_name: string;
+  last_name: string;
+  email: string;
+  studio_id: string;
+  role_title: string;
+  hire_date: string;
+  status: "active" | "inactive" | string;
+  onboarding: Coach["onboarding"];
+}>;
+
+function normalizeCoachStatus(
+  status?: string | null,
+): "active" | "inactive" | undefined {
+  if (!status) return undefined;
+  return status === "inactive" ? "inactive" : "active";
+}
+
+function buildUpdatedOnboarding(
+  onboarding: Coach["onboarding"] | undefined,
+  taskId: string,
+) {
+  const base = onboarding ?? {
+    status: "not_started" as const,
+    progress: 0,
+    stages: [],
+  };
+
+  const nextStages = base.stages.map((stage) => ({
+    ...stage,
+    tasks: stage.tasks.map((task) =>
+      task.id === taskId ? { ...task, completed: !task.completed } : task,
+    ),
+  }));
+
+  const allTasks = nextStages.flatMap((stage) => stage.tasks);
+  const completedCount = allTasks.filter((task) => task.completed).length;
+  const totalCount = allTasks.length;
+  const progress =
+    totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+  let status: "not_started" | "in_progress" | "completed" = "not_started";
+
+  if (totalCount > 0 && completedCount === totalCount) {
+    status = "completed";
+  } else if (completedCount > 0) {
+    status = "in_progress";
+  }
+
+  return {
+    ...base,
+    stages: nextStages,
+    progress,
+    status,
+  };
+}
+
+export async function fetchCoaches(studioId?: string): Promise<Coach[]> {
+  let query = supabase
     .from("coaches")
     .select("*")
     .order("first_name", { ascending: true });
 
+  if (studioId) {
+    query = query.eq("studio_id", studioId);
+  }
+
+  const { data, error } = await query;
+
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []) as Coach[];
 }
 
-export async function fetchCoachById(id: string) {
+// 🔴 FIX: agora OBRIGA studioId
+export async function fetchCoachById(
+  id: string,
+  studioId: string,
+): Promise<Coach> {
   const { data, error } = await supabase
     .from("coaches")
     .select("*")
     .eq("id", id)
+    .eq("studio_id", studioId)
     .single();
 
   if (error) throw error;
-  return data;
+  return data as Coach;
 }
 
-export async function createCoach(input: {
-  studio_id: string;
-  first_name: string;
-  last_name: string;
-  email?: string;
-  role_title?: string;
-  hire_date?: string;
-  status?: string;
-}) {
+export async function createCoach(input: CreateCoachInput): Promise<Coach> {
   const payload = {
-    id: crypto.randomUUID(),
-    studio_id: input.studio_id.trim(),
+    id: makeTextId("coach"),
     first_name: input.first_name.trim(),
     last_name: input.last_name.trim(),
     email: input.email?.trim() || null,
-    role_title: input.role_title?.trim() || null,
-    hire_date: input.hire_date || new Date().toISOString(),
-    status: input.status?.trim() || "active",
-    onboarding: createOnboardingTemplate(),
+    studio_id: input.studio_id,
+    role_title: input.role_title?.trim() || "Coach",
+    hire_date: input.hire_date || new Date().toISOString().slice(0, 10),
+    status: normalizeCoachStatus(input.status) || "active",
   };
 
   const { data, error } = await supabase
@@ -54,119 +123,88 @@ export async function createCoach(input: {
     .single();
 
   if (error) throw error;
-  return data;
+  return data as Coach;
 }
 
+// 🔴 FIX: adiciona studioId obrigatório
 export async function updateCoach(
   id: string,
-  input: {
-    studio_id: string;
-    first_name: string;
-    last_name: string;
-    email?: string;
-    role_title?: string;
-    hire_date?: string;
-    status?: string;
-  }
-) {
+  studioId: string,
+  input: UpdateCoachInput,
+): Promise<Coach> {
+  const normalizedStatus = normalizeCoachStatus(input.status);
+
   const payload = {
-    studio_id: input.studio_id.trim(),
-    first_name: input.first_name.trim(),
-    last_name: input.last_name.trim(),
-    email: input.email?.trim() || null,
-    role_title: input.role_title?.trim() || null,
-    hire_date: input.hire_date || new Date().toISOString(),
-    status: input.status?.trim() || "active",
+    ...(input.first_name !== undefined
+      ? { first_name: input.first_name.trim() }
+      : {}),
+    ...(input.last_name !== undefined
+      ? { last_name: input.last_name.trim() }
+      : {}),
+    ...(input.email !== undefined ? { email: input.email.trim() || null } : {}),
+    ...(input.studio_id !== undefined ? { studio_id: input.studio_id } : {}),
+    ...(input.role_title !== undefined
+      ? { role_title: input.role_title.trim() || null }
+      : {}),
+    ...(input.hire_date !== undefined ? { hire_date: input.hire_date } : {}),
+    ...(normalizedStatus !== undefined ? { status: normalizedStatus } : {}),
+    ...(input.onboarding !== undefined ? { onboarding: input.onboarding } : {}),
   };
 
   const { data, error } = await supabase
     .from("coaches")
     .update(payload)
     .eq("id", id)
+    .eq("studio_id", studioId)
     .select()
     .single();
 
   if (error) throw error;
-  return data;
+  return data as Coach;
 }
 
-export async function deleteCoach(id: string) {
+// 🔴 FIX: adiciona studioId
+export async function deleteCoach(
+  id: string,
+  studioId: string,
+): Promise<void> {
   const { error } = await supabase
     .from("coaches")
     .delete()
-    .eq("id", id);
-
-  if (error) throw error;
-}
-
-export async function toggleCoachStatus(id: string, currentStatus: string) {
-  const newStatus = currentStatus === "active" ? "inactive" : "active";
-
-  const { data, error } = await supabase
-    .from("coaches")
-    .update({ status: newStatus })
     .eq("id", id)
-    .select()
-    .single();
+    .eq("studio_id", studioId);
 
   if (error) throw error;
-  return data;
 }
 
+// 🔴 FIX: tudo agora usa studioId
+export async function toggleCoachStatus(
+  id: string,
+  studioId: string,
+  nextStatus?: "active" | "inactive" | string,
+): Promise<Coach> {
+  const normalizedNextStatus = normalizeCoachStatus(nextStatus);
+
+  if (normalizedNextStatus) {
+    return updateCoach(id, studioId, { status: normalizedNextStatus });
+  }
+
+  const current = await fetchCoachById(id, studioId);
+  const status = current.status === "active" ? "inactive" : "active";
+
+  return updateCoach(id, studioId, { status });
+}
+
+// 🔴 FIX: onboarding também protegido por studio
 export async function toggleOnboardingTask(
   coachId: string,
-  stageKey: string,
-  taskId: string
-) {
-  const { data: coach, error: fetchError } = await supabase
-    .from("coaches")
-    .select("id, onboarding")
-    .eq("id", coachId)
-    .single();
+  studioId: string,
+  taskId: string,
+): Promise<Coach> {
+  const coach = await fetchCoachById(coachId, studioId);
+  const nextOnboarding = buildUpdatedOnboarding(coach.onboarding, taskId);
 
-  if (fetchError) throw fetchError;
-  if (!coach?.onboarding) throw new Error("Onboarding not found");
-
-  const onboarding = coach.onboarding;
-
-  const updatedStages = onboarding.stages.map((stage: any) => {
-    if (stage.key !== stageKey) return stage;
-
-    return {
-      ...stage,
-      tasks: stage.tasks.map((task: any) => {
-        if (task.id !== taskId) return task;
-
-        const nextCompleted = !task.completed;
-
-        return {
-          ...task,
-          completed: nextCompleted,
-          completed_at: nextCompleted ? new Date().toISOString() : null,
-        };
-      }),
-    };
+  return updateCoach(coachId, studioId, {
+    onboarding: nextOnboarding,
   });
-
-  const updatedOnboarding = {
-    ...onboarding,
-    stages: updatedStages,
-  };
-
-  const progress = calculateOnboardingProgress(updatedOnboarding);
-  const status = getOnboardingStatus(progress);
-
-  updatedOnboarding.progress = progress;
-  updatedOnboarding.status = status;
-  
-
-  const { data, error } = await supabase
-    .from("coaches")
-    .update({ onboarding: updatedOnboarding })
-    .eq("id", coachId)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
 }

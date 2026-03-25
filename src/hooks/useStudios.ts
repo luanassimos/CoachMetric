@@ -1,32 +1,18 @@
-import { useEffect, useState } from "react";
-import type { Studio } from "@/lib/types";
+import { useQuery } from "@tanstack/react-query";
 import { fetchStudios } from "@/data/supabaseStudios";
 
 export function useStudios() {
-  const [studios, setStudios] = useState<Studio[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function loadStudios() {
-      try {
-        setLoading(true);
-        const data = await fetchStudios();
-        setStudios(data ?? []);
-      } catch (err) {
-        console.error("Failed to load studios:", err);
-        setError("Failed to load studios");
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadStudios();
-  }, []);
+  const query = useQuery({
+    queryKey: ["studios"],
+    queryFn: fetchStudios,
+    staleTime: 5 * 60_000,
+  });
 
   return {
-    studios,
-    loading,
-    error,
+    studios: query.data ?? [],
+    loading: query.isLoading,
+    fetching: query.isFetching,
+    error: query.error,
+    refetch: query.refetch,
   };
 }

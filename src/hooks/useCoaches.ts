@@ -1,35 +1,28 @@
-import { useEffect, useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { Coach } from "@/lib/types";
 import { fetchCoaches } from "@/data/supabaseCoaches";
+import { useStudio } from "@/contexts/StudioContext";
 
 export function useCoaches() {
-  const [coaches, setCoaches] = useState<Coach[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { selectedStudioId, isAllStudios, isReady } = useStudio();
 
-  async function loadCoaches() {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const data = await fetchCoaches();
-      setCoaches(data ?? []);
-    } catch (err) {
-      console.error("Failed to load coaches:", err);
-      setError("Failed to load coaches");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    loadCoaches();
-  }, []);
+  const query = useQuery({
+    queryKey: ["coaches", selectedStudioId],
+    queryFn: () =>
+      fetchCoaches(
+        selectedStudioId === "all" ? undefined : selectedStudioId
+      ),
+    enabled: isReady && (!!selectedStudioId || isAllStudios),
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+    retry: false,
+  });
 
   return {
-    coaches,
-    loading,
-    error,
-    refetch: loadCoaches, // 🔥 ESSA LINHA RESOLVE TUDO
+    coaches: (query.data ?? []) as Coach[],
+    loading: query.isLoading,
+    fetching: query.isFetching,
+    error: query.error,
+    refetch: query.refetch,
   };
 }

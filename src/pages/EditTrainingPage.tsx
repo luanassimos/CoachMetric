@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   fetchTrainingSessionById,
   updateTrainingSession,
@@ -11,6 +14,16 @@ import {
 } from "@/data/supabaseTraining";
 import { useCoaches } from "@/hooks/useCoaches";
 import { getCoachName } from "@/data/helpers";
+import { useStudio } from "@/contexts/StudioContext";
+import { useStudios } from "@/hooks/useStudios";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 type AttendanceRow = {
   coach_id: string;
@@ -18,10 +31,33 @@ type AttendanceRow = {
   notes: string;
 };
 
+function SurfaceCard({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`rounded-2xl border border-white/8 bg-white/[0.02] shadow-[0_1px_0_rgba(255,255,255,0.03)_inset] ${className}`}
+    >
+      {children}
+    </div>
+  );
+}
+
 export default function EditTrainingPage() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { coaches, loading: coachesLoading } = useCoaches();
+  const { selectedStudioId, selectedStudio, setSelectedStudioId, isReady } = useStudio();
+  const { studios } = useStudios();
+
+  const routeStudioId = searchParams.get("studio");
+
+  
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -32,13 +68,21 @@ export default function EditTrainingPage() {
   const [topic, setTopic] = useState("");
   const [facilitatorName, setFacilitatorName] = useState("");
   const [studioId, setStudioId] = useState("");
+  useEffect(() => {
+  if (!routeStudioId || routeStudioId === "all") return;
+  if (routeStudioId !== selectedStudioId) {
+    setSelectedStudioId(routeStudioId as string | "all");
+  }
+}, [routeStudioId, selectedStudioId, setSelectedStudioId]);
   const [description, setDescription] = useState("");
   const [goals, setGoals] = useState("");
   const [notes, setNotes] = useState("");
   const [materialUrl, setMaterialUrl] = useState("");
   const [materialName, setMaterialName] = useState("");
 
-  const [attendanceMap, setAttendanceMap] = useState<Record<string, AttendanceRow>>({});
+  const [attendanceMap, setAttendanceMap] = useState<
+    Record<string, AttendanceRow>
+  >({});
 
   useEffect(() => {
     async function loadTraining() {
@@ -82,10 +126,28 @@ export default function EditTrainingPage() {
     loadTraining();
   }, [id]);
 
+  const effectiveStudioId = studioId || (selectedStudioId !== "all" ? selectedStudioId || "" : "");
+  const backToTrainingHref = (() => {
+  const scopedStudio =
+    routeStudioId && routeStudioId !== "all"
+      ? routeStudioId
+      : effectiveStudioId || (selectedStudioId !== "all" ? selectedStudioId || "" : "");
+
+  return scopedStudio ? `/training?studio=${scopedStudio}` : "/training";
+})();
+
+  const studioNameMap = useMemo(() => {
+    return new Map(studios.map((studio) => [studio.id, studio.name]));
+  }, [studios]);
+
+  const effectiveStudioName = useMemo(() => {
+    return studioNameMap.get(effectiveStudioId) || selectedStudio?.name || effectiveStudioId;
+  }, [studioNameMap, effectiveStudioId, selectedStudio]);
+
   const visibleCoaches = useMemo(() => {
-    if (!studioId) return coaches;
-    return coaches.filter((coach: any) => coach.studio_id === studioId);
-  }, [coaches, studioId]);
+    if (!effectiveStudioId) return [];
+    return coaches.filter((coach: any) => coach.studio_id === effectiveStudioId);
+  }, [coaches, effectiveStudioId]);
 
   function updateAttendanceRow(coachId: string, updates: Partial<AttendanceRow>) {
     setAttendanceMap((prev) => ({
@@ -101,8 +163,8 @@ export default function EditTrainingPage() {
 
   async function handleSave() {
     if (!id) return;
-    if (!title.trim() || !sessionDate || !studioId.trim()) {
-      alert("Title, date, and studio ID are required.");
+    if (!title.trim() || !sessionDate || !effectiveStudioId) {
+      alert("Title, date, and studio are required.");
       return;
     }
 
@@ -114,7 +176,7 @@ export default function EditTrainingPage() {
         session_date: sessionDate,
         topic,
         facilitator_name: facilitatorName,
-        studio_id: studioId,
+        studio_id: effectiveStudioId,
         description,
         goals,
         notes,
@@ -122,7 +184,12 @@ export default function EditTrainingPage() {
         material_name: materialName,
       });
 
-      navigate("/training");
+      const scopedStudio =
+  routeStudioId && routeStudioId !== "all"
+    ? routeStudioId
+    : effectiveStudioId || (selectedStudioId !== "all" ? selectedStudioId || "" : "");
+
+navigate(scopedStudio ? `/training?studio=${scopedStudio}` : "/training");
     } catch (error: any) {
       console.error("Failed to update training session:", error);
       alert(error.message || "Failed to save training.");
@@ -164,56 +231,86 @@ export default function EditTrainingPage() {
 
     try {
       await deleteTrainingSession(id);
-      navigate("/training");
+      const scopedStudio =
+  routeStudioId && routeStudioId !== "all"
+    ? routeStudioId
+    : effectiveStudioId || (selectedStudioId !== "all" ? selectedStudioId || "" : "");
+
+navigate(scopedStudio ? `/training?studio=${scopedStudio}` : "/training");
     } catch (error: any) {
       console.error("Failed to delete training session:", error);
       alert(error.message || "Failed to delete training.");
     }
   }
 
-  if (loading || coachesLoading) {
-    return <div className="p-6">Loading training...</div>;
-  }
+  if (!isReady || loading || coachesLoading) {
+  return <div className="p-6 text-sm text-muted-foreground">Loading training...</div>;
+}
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Edit Training</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Update training details, materials, and attendance
-          </p>
-        </div>
+    <div className="mx-auto w-full max-w-6xl min-w-0 space-y-6">
+      <button
+        type="button"
+        onClick={() => navigate(backToTrainingHref)}
+        className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back to Training
+      </button>
 
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => navigate("/training")}>
-            Cancel
-          </Button>
-          <Button variant="destructive" onClick={handleDelete}>
-            Delete
-          </Button>
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? "Saving..." : "Save Changes"}
-          </Button>
-        </div>
-      </div>
+      <SurfaceCard className="p-5 sm:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/80">
+              Training Operations
+            </p>
+            <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+              Edit Training
+            </h1>
+            <p className="mt-3 text-sm text-muted-foreground">
+              Update training details, materials, and attendance.
+            </p>
+          </div>
 
-      <div className="card-elevated p-6 space-y-6">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => navigate(backToTrainingHref)}
+            >
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDelete}>
+              Delete
+            </Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? "Saving..." : "Save Changes"}
+            </Button>
+          </div>
+        </div>
+      </SurfaceCard>
+
+      <SurfaceCard className="space-y-6 p-5 sm:p-6">
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Title</label>
+          <div>
+            <label className="mb-2 block text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              Title
+            </label>
             <Input value={title} onChange={(e) => setTitle(e.target.value)} />
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Topic</label>
+          <div>
+            <label className="mb-2 block text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              Topic
+            </label>
             <Input value={topic} onChange={(e) => setTopic(e.target.value)} />
           </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Session Date</label>
+          <div>
+            <label className="mb-2 block text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              Session Date
+            </label>
             <Input
               type="date"
               value={sessionDate}
@@ -221,47 +318,54 @@ export default function EditTrainingPage() {
             />
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Facilitator</label>
+          <div>
+            <label className="mb-2 block text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              Facilitator
+            </label>
             <Input
               value={facilitatorName}
               onChange={(e) => setFacilitatorName(e.target.value)}
             />
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Studio ID</label>
-            <Input
-              value={studioId}
-              onChange={(e) => setStudioId(e.target.value)}
-            />
+          <div>
+            <label className="mb-2 block text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              Studio
+            </label>
+            <Input value={effectiveStudioName || ""} disabled />
           </div>
         </div>
 
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Description</label>
-          <textarea
-            className="w-full min-h-[120px] rounded-md border bg-background px-3 py-2 text-sm"
+        <div>
+          <label className="mb-2 block text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+            Description
+          </label>
+          <Textarea
+            className="min-h-[120px]"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Describe the training session..."
           />
         </div>
 
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Goals</label>
-          <textarea
-            className="w-full min-h-[120px] rounded-md border bg-background px-3 py-2 text-sm"
+        <div>
+          <label className="mb-2 block text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+            Goals
+          </label>
+          <Textarea
+            className="min-h-[120px]"
             value={goals}
             onChange={(e) => setGoals(e.target.value)}
             placeholder="List the goals of this training..."
           />
         </div>
 
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Internal Notes</label>
-          <textarea
-            className="w-full min-h-[120px] rounded-md border bg-background px-3 py-2 text-sm"
+        <div>
+          <label className="mb-2 block text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+            Internal Notes
+          </label>
+          <Textarea
+            className="min-h-[120px]"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Internal notes, reminders, context..."
@@ -269,8 +373,10 @@ export default function EditTrainingPage() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Material Name</label>
+          <div>
+            <label className="mb-2 block text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              Material Name
+            </label>
             <Input
               value={materialName}
               onChange={(e) => setMaterialName(e.target.value)}
@@ -278,8 +384,10 @@ export default function EditTrainingPage() {
             />
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Material URL</label>
+          <div>
+            <label className="mb-2 block text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              Material URL
+            </label>
             <Input
               value={materialUrl}
               onChange={(e) => setMaterialUrl(e.target.value)}
@@ -287,14 +395,14 @@ export default function EditTrainingPage() {
             />
           </div>
         </div>
-      </div>
+      </SurfaceCard>
 
-      <div className="card-elevated p-6 space-y-4">
-        <div className="flex items-center justify-between">
+      <SurfaceCard className="overflow-hidden">
+        <div className="flex flex-col gap-3 border-b border-white/8 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold">Attendance</h2>
-            <p className="text-sm text-muted-foreground">
-              Mark which coaches attended this training
+            <p className="mt-1 text-sm text-muted-foreground">
+              Mark which coaches attended this training.
             </p>
           </div>
 
@@ -303,68 +411,67 @@ export default function EditTrainingPage() {
           </Button>
         </div>
 
-        <div className="overflow-hidden rounded-md border">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b bg-muted/30">
-                <th className="text-left px-4 py-3 text-xs font-medium">Coach</th>
-                <th className="text-left px-4 py-3 text-xs font-medium">Present</th>
-                <th className="text-left px-4 py-3 text-xs font-medium">Notes</th>
-              </tr>
-            </thead>
+        <Table className="border-0 bg-transparent">
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead>Coach</TableHead>
+              <TableHead>Present</TableHead>
+              <TableHead>Notes</TableHead>
+            </TableRow>
+          </TableHeader>
 
-            <tbody className="divide-y">
-              {visibleCoaches.length === 0 ? (
-                <tr>
-                  <td colSpan={3} className="px-4 py-6 text-sm text-muted-foreground">
-                    No coaches found for this studio.
-                  </td>
-                </tr>
-              ) : (
-                visibleCoaches.map((coach: any) => {
-                  const row = attendanceMap[coach.id] ?? {
-                    coach_id: coach.id,
-                    attended: false,
-                    notes: "",
-                  };
+          <TableBody>
+            {visibleCoaches.length === 0 ? (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={3} className="px-4 py-6 text-sm text-muted-foreground">
+                  No coaches found for this studio.
+                </TableCell>
+              </TableRow>
+            ) : (
+              visibleCoaches.map((coach: any) => {
+                const row = attendanceMap[coach.id] ?? {
+                  coach_id: coach.id,
+                  attended: false,
+                  notes: "",
+                };
 
-                  return (
-                    <tr key={coach.id}>
-                      <td className="px-4 py-3 text-sm font-medium">
-                        {getCoachName(coach)}
-                      </td>
+                return (
+                  <TableRow key={coach.id}>
+                    <TableCell className="px-4 py-3 text-sm font-medium">
+                      {getCoachName(coach)}
+                    </TableCell>
 
-                      <td className="px-4 py-3">
-                        <input
-                          type="checkbox"
-                          checked={row.attended}
-                          onChange={(e) =>
-                            updateAttendanceRow(coach.id, {
-                              attended: e.target.checked,
-                            })
-                          }
-                        />
-                      </td>
+                    <TableCell className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={row.attended}
+                        onChange={(e) =>
+                          updateAttendanceRow(coach.id, {
+                            attended: e.target.checked,
+                          })
+                        }
+                        className="h-4 w-4"
+                      />
+                    </TableCell>
 
-                      <td className="px-4 py-3">
-                        <Input
-                          value={row.notes}
-                          onChange={(e) =>
-                            updateAttendanceRow(coach.id, {
-                              notes: e.target.value,
-                            })
-                          }
-                          placeholder="Optional notes"
-                        />
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                    <TableCell className="px-4 py-3">
+                      <Input
+                        value={row.notes}
+                        onChange={(e) =>
+                          updateAttendanceRow(coach.id, {
+                            notes: e.target.value,
+                          })
+                        }
+                        placeholder="Optional notes"
+                      />
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+      </SurfaceCard>
     </div>
   );
 }

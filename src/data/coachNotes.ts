@@ -45,4 +45,4 @@ export const coachNotes: CoachNote[] = [
       "Coach welcomed first timer well, explained the class clearly, and helped with rebooking.",
     created_by: "Head Coach Mike",
   },
-];``
+];

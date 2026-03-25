@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { evaluationSections } from "@/lib/evaluation-schema";
 import {
   EvaluationTemplate,
   EvaluationTemplateSection,
@@ -50,12 +51,18 @@ function normalizeSectionCode(section: any, index: number) {
     return section.code.trim();
   }
 
-  const title = typeof section?.title === "string" ? section.title : `section_${index + 1}`;
+  const title =
+    typeof section?.title === "string" ? section.title : `section_${index + 1}`;
+
   return toSnakeCase(title);
 }
 
 function normalizeItemType(item: any): "boolean" | "scale" | "options" {
-  if (item?.type === "boolean" || item?.type === "scale" || item?.type === "options") {
+  if (
+    item?.type === "boolean" ||
+    item?.type === "scale" ||
+    item?.type === "options"
+  ) {
     return item.type;
   }
 
@@ -63,8 +70,13 @@ function normalizeItemType(item: any): "boolean" | "scale" | "options" {
   if (item?.input_type === "select") return "options";
   if (item?.input_type === "score") return "scale";
 
-  if (Array.isArray(item?.options_json) && item.options_json.length > 0) return "options";
-  if (item?.min_score != null || item?.max_score != null) return "scale";
+  if (Array.isArray(item?.options_json) && item.options_json.length > 0) {
+    return "options";
+  }
+
+  if (item?.min_score != null || item?.max_score != null) {
+    return "scale";
+  }
 
   return "boolean";
 }
@@ -150,7 +162,32 @@ export async function getEvaluationTemplatesByStudio(studioId: string) {
 
   return (data ?? []) as EvaluationTemplate[];
 }
+export async function getNormalizedEvaluationTemplatesByStudio(
+  studioId: string
+): Promise<NormalizedEvaluationTemplate[]> {
+  const templates = await getEvaluationTemplatesByStudio(studioId);
 
+  if (!templates.length) return [];
+
+  const normalizedTemplates: NormalizedEvaluationTemplate[] = [];
+
+  for (const template of templates) {
+    const fullTemplate = await getFullEvaluationTemplate(template.id);
+
+    if (!fullTemplate) continue;
+
+    normalizedTemplates.push(normalizeFullTemplate(fullTemplate));
+  }
+
+  return normalizedTemplates.sort((a, b) => {
+    const activeA = a.is_active ? 1 : 0;
+    const activeB = b.is_active ? 1 : 0;
+
+    if (activeA !== activeB) return activeB - activeA;
+
+    return (b.version ?? 0) - (a.version ?? 0);
+  });
+}
 export async function getActiveEvaluationTemplate(studioId: string) {
   const { data, error } = await supabase
     .from("evaluation_templates")
@@ -203,10 +240,12 @@ export async function getFullEvaluationTemplate(templateId: string) {
     return null;
   }
 
-  const sections = ((data ?? []) as TemplateSectionWithItems[]).map((section) => ({
-    ...section,
-    items: (section.items ?? []).sort((a, b) => a.sort_order - b.sort_order),
-  }));
+  const sections = ((data ?? []) as TemplateSectionWithItems[]).map(
+    (section) => ({
+      ...section,
+      items: (section.items ?? []).sort((a, b) => a.sort_order - b.sort_order),
+    })
+  );
 
   return {
     ...template,
@@ -278,6 +317,64 @@ export async function updateEvaluationTemplate(
   return data as EvaluationTemplate;
 }
 
+export async function deleteEvaluationTemplate(templateId: string) {
+  const template = await getEvaluationTemplateById(templateId);
+
+  if (!template) {
+    throw new Error("Template not found");
+  }
+
+  if (template.is_active) {
+    throw new Error("Cannot delete the active template");
+  }
+
+  const { data: sections, error: sectionsError } = await supabase
+    .from("evaluation_template_sections")
+    .select("id")
+    .eq("template_id", templateId);
+
+  if (sectionsError) {
+    console.error("Error fetching template sections for delete:", sectionsError);
+    throw sectionsError;
+  }
+
+  const sectionIds = (sections ?? []).map((section) => section.id);
+
+  if (sectionIds.length > 0) {
+    const { error: deleteItemsError } = await supabase
+      .from("evaluation_template_items")
+      .delete()
+      .in("section_id", sectionIds);
+
+    if (deleteItemsError) {
+      console.error("Error deleting template items:", deleteItemsError);
+      throw deleteItemsError;
+    }
+  }
+
+  const { error: deleteSectionsError } = await supabase
+    .from("evaluation_template_sections")
+    .delete()
+    .eq("template_id", templateId);
+
+  if (deleteSectionsError) {
+    console.error("Error deleting template sections:", deleteSectionsError);
+    throw deleteSectionsError;
+  }
+
+  const { error: deleteTemplateError } = await supabase
+    .from("evaluation_templates")
+    .delete()
+    .eq("id", templateId);
+
+  if (deleteTemplateError) {
+    console.error("Error deleting template:", deleteTemplateError);
+    throw deleteTemplateError;
+  }
+
+  return true;
+}
+
 export async function setActiveEvaluationTemplate(
   templateId: string,
   studioId: string
@@ -327,7 +424,10 @@ export async function createEvaluationSection(params: {
 export async function updateEvaluationSection(
   sectionId: string,
   updates: Partial<
-    Pick<EvaluationTemplateSection, "title" | "description" | "sort_order" | "is_active">
+    Pick<
+      EvaluationTemplateSection,
+      "title" | "description" | "sort_order" | "is_active"
+    >
   >
 ) {
   const { data, error } = await supabase
@@ -377,7 +477,7 @@ export async function createEvaluationItem(params: {
     label: params.label ?? "New Item",
     description: params.description ?? null,
     input_type: params.input_type ?? "score",
-    min_score: params.min_score ?? null,
+    min_score: params.min_score ?? 1,
     max_score: params.max_score ?? 5,
     weight: params.weight ?? 1,
     sort_order: params.sort_order ?? 0,
@@ -442,6 +542,111 @@ export async function deleteEvaluationItem(itemId: string) {
   if (error) {
     console.error("Error deleting item:", error);
     throw error;
+  }
+
+  return true;
+}
+
+export async function restoreDefaultEvaluationTemplate(templateId: string) {
+  const { data: existingSections, error: sectionsFetchError } = await supabase
+    .from("evaluation_template_sections")
+    .select("id")
+    .eq("template_id", templateId);
+
+  if (sectionsFetchError) {
+    console.error("Error fetching existing sections:", sectionsFetchError);
+    throw sectionsFetchError;
+  }
+
+  const sectionIds = (existingSections ?? []).map((section) => section.id);
+
+  if (sectionIds.length > 0) {
+    const { error: deleteItemsError } = await supabase
+      .from("evaluation_template_items")
+      .delete()
+      .in("section_id", sectionIds);
+
+    if (deleteItemsError) {
+      console.error("Error deleting existing items:", deleteItemsError);
+      throw deleteItemsError;
+    }
+  }
+
+  const { error: deleteSectionsError } = await supabase
+    .from("evaluation_template_sections")
+    .delete()
+    .eq("template_id", templateId);
+
+  if (deleteSectionsError) {
+    console.error("Error deleting existing sections:", deleteSectionsError);
+    throw deleteSectionsError;
+  }
+
+  for (let sIndex = 0; sIndex < evaluationSections.length; sIndex++) {
+    const section = evaluationSections[sIndex];
+
+    const { data: dbSection, error: sectionInsertError } = await supabase
+      .from("evaluation_template_sections")
+      .insert([
+        {
+          template_id: templateId,
+          title: section.title,
+          description: null,
+          sort_order: sIndex,
+          is_active: true,
+        },
+      ])
+      .select()
+      .single();
+
+    if (sectionInsertError || !dbSection) {
+      console.error(
+        `Error creating section ${section.title}:`,
+        sectionInsertError
+      );
+      throw (
+        sectionInsertError ??
+        new Error(`Failed to create section ${section.title}`)
+      );
+    }
+
+    const itemsPayload = section.items.map((item, iIndex) => {
+      const inputType =
+        item.type === "boolean"
+          ? "boolean"
+          : item.type === "scale"
+          ? "score"
+          : "select";
+
+      const isScore = inputType === "score";
+      const isSelect = inputType === "select";
+
+      return {
+        section_id: dbSection.id,
+        label: item.label,
+        description: null,
+        input_type: inputType,
+        min_score: isScore ? (item.min ?? 1) : null,
+        max_score: isScore ? (item.max ?? 5) : null,
+        weight: 1,
+        sort_order: iIndex,
+        is_required: true,
+        is_active: true,
+        options_json: isSelect ? (item.options ?? null) : null,
+      };
+    });
+
+    const { error: itemsInsertError } = await supabase
+      .from("evaluation_template_items")
+      .insert(itemsPayload);
+
+    if (itemsInsertError) {
+      console.error(
+        `Error creating items for section ${section.title}:`,
+        itemsInsertError
+      );
+      throw itemsInsertError;
+    }
   }
 
   return true;

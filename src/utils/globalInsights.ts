@@ -1,4 +1,5 @@
 import type { DashboardData } from "@/lib/types";
+import type { GlobalActionItem } from "@/utils/generateGlobalActionItems";
 
 export interface GlobalInsight {
   id: string;
@@ -107,4 +108,38 @@ export function generateGlobalInsights(data: DashboardData): GlobalInsight[] {
   }
 
   return insights.slice(0, 6);
+}
+
+function mapActionPriorityToSeverity(
+  priority: GlobalActionItem["priority"],
+): GlobalInsight["severity"] {
+  if (priority === "high") return "critical";
+  if (priority === "medium") return "warning";
+  return "info";
+}
+
+export function generateActionInsights(
+  actionItems: GlobalActionItem[],
+): GlobalInsight[] {
+  return actionItems.slice(0, 6).map((item) => ({
+    id: `action-${item.id}`,
+    title: `${item.coachName}: ${item.title}`,
+    description: item.description,
+    severity: mapActionPriorityToSeverity(item.priority),
+  }));
+}
+
+export function mergeGlobalInsights(
+  baseInsights: GlobalInsight[],
+  actionInsights: GlobalInsight[],
+  limit = 6,
+): GlobalInsight[] {
+  const merged = [...actionInsights, ...baseInsights];
+  const seen = new Set<string>();
+
+  return merged.filter((insight) => {
+    if (seen.has(insight.title)) return false;
+    seen.add(insight.title);
+    return true;
+  }).slice(0, limit);
 }

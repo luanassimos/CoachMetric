@@ -1,12 +1,46 @@
-import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { fetchCoachById, updateCoach, deleteCoach } from "@/data/supabaseCoaches";
+import {
+  fetchCoachById,
+  updateCoach,
+  deleteCoach,
+} from "@/data/supabaseCoaches";
+import { useStudios } from "@/hooks/useStudios";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+function SurfaceCard({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`rounded-2xl border border-white/8 bg-white/[0.02] shadow-[0_1px_0_rgba(255,255,255,0.03)_inset] ${className}`}
+    >
+      {children}
+    </div>
+  );
+}
 
 export default function EditCoachPage() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { studios, loading: studiosLoading } = useStudios();
+
+  const routeStudioId = searchParams.get("studio") || "all";
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -18,6 +52,14 @@ export default function EditCoachPage() {
   const [roleTitle, setRoleTitle] = useState("");
   const [hireDate, setHireDate] = useState("");
   const [status, setStatus] = useState("active");
+
+  const backToProfileHref = useMemo(() => {
+    return `/coaches/${id}?studio=${routeStudioId}`;
+  }, [id, routeStudioId]);
+
+  const backToCoachesHref = useMemo(() => {
+    return `/coaches?studio=${routeStudioId}`;
+  }, [routeStudioId]);
 
   useEffect(() => {
     async function loadCoach() {
@@ -64,7 +106,7 @@ export default function EditCoachPage() {
         status,
       });
 
-      navigate(`/coaches/${id}`);
+      navigate(`/coaches/${id}?studio=${routeStudioId}`);
     } catch (error: any) {
       console.error("Failed to update coach:", error);
       alert(error.message || "Failed to save coach.");
@@ -81,74 +123,114 @@ export default function EditCoachPage() {
 
     try {
       await deleteCoach(id);
-      navigate("/coaches");
+      navigate(backToCoachesHref);
     } catch (error: any) {
       console.error("Failed to delete coach:", error);
       alert(
         error.message ||
-          "Failed to delete coach. This may be blocked by related evaluations or training records."
+          "Failed to delete coach. This may be blocked by related evaluations or training records.",
       );
     }
   }
 
-  if (loading) {
-    return <div className="p-6">Loading coach...</div>;
+  if (loading || studiosLoading) {
+    return <div className="p-6 text-sm text-muted-foreground">Loading coach...</div>;
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Edit Coach</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Update coach details and status
-          </p>
-        </div>
+    <div className="mx-auto w-full max-w-4xl min-w-0 space-y-6">
+      <button
+        type="button"
+        onClick={() => navigate(backToProfileHref)}
+        className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back to Coach
+      </button>
 
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => navigate(`/coaches/${id}`)}>
-            Cancel
-          </Button>
-          <Button variant="destructive" onClick={handleDelete}>
-            Delete
-          </Button>
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? "Saving..." : "Save Changes"}
-          </Button>
-        </div>
-      </div>
+      <SurfaceCard className="p-5 sm:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/80">
+              Coach Directory
+            </p>
+            <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+              Edit Coach
+            </h1>
+            <p className="mt-3 text-sm text-muted-foreground">
+              Update coach details, role, studio assignment, and status.
+            </p>
+          </div>
 
-      <div className="card-elevated p-6 space-y-6">
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => navigate(backToProfileHref)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDelete}>
+              Delete
+            </Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? "Saving..." : "Save Changes"}
+            </Button>
+          </div>
+        </div>
+      </SurfaceCard>
+
+      <SurfaceCard className="space-y-6 p-5 sm:p-6">
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="space-y-2">
-            <label className="text-sm font-medium">First Name</label>
+          <div>
+            <label className="mb-2 block text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              First Name
+            </label>
             <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} />
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Last Name</label>
+          <div>
+            <label className="mb-2 block text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              Last Name
+            </label>
             <Input value={lastName} onChange={(e) => setLastName(e.target.value)} />
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Studio ID</label>
-            <Input value={studioId} onChange={(e) => setStudioId(e.target.value)} />
+          <div>
+            <label className="mb-2 block text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              Studio
+            </label>
+
+            <Select value={studioId} onValueChange={setStudioId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select studio" />
+              </SelectTrigger>
+              <SelectContent>
+                {studios.map((studio: any) => (
+                  <SelectItem key={studio.id} value={studio.id}>
+                    {studio.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Email</label>
+          <div>
+            <label className="mb-2 block text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              Email
+            </label>
             <Input value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Role Title</label>
+          <div>
+            <label className="mb-2 block text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              Role Title
+            </label>
             <Input value={roleTitle} onChange={(e) => setRoleTitle(e.target.value)} />
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Hire Date</label>
+          <div>
+            <label className="mb-2 block text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              Hire Date
+            </label>
             <Input
               type="date"
               value={hireDate}
@@ -157,18 +239,22 @@ export default function EditCoachPage() {
           </div>
         </div>
 
-        <div className="max-w-xs space-y-2">
-          <label className="text-sm font-medium">Status</label>
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-          >
-            <option value="active">active</option>
-            <option value="inactive">inactive</option>
-          </select>
+        <div className="max-w-xs">
+          <label className="mb-2 block text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+            Status
+          </label>
+
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="active">active</SelectItem>
+              <SelectItem value="inactive">inactive</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-      </div>
+      </SurfaceCard>
     </div>
   );
 }

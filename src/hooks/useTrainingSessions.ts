@@ -1,9 +1,19 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "../lib/supabase";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useStudio } from "@/contexts/StudioContext";
+import {
+  fetchTrainingSessions as fetchTrainingSessionsByStudio,
+  createTrainingSession as createTrainingSessionData,
+  updateTrainingSession as updateTrainingSessionData,
+} from "@/data/supabaseTraining";
 
 export type TrainingSession = {
   id: string;
-  studio_id: string | null;
+  studio_id: string;
   title: string;
   topic: string | null;
   session_date: string;
@@ -16,112 +26,100 @@ export type TrainingSession = {
   created_at?: string;
 };
 
-const QUERY_KEY = ["training_sessions"];
-
-const fetchTrainingSessions = async (): Promise<TrainingSession[]> => {
-  const { data, error } = await supabase
-    .from("training_sessions")
-    .select("*")
-    .order("session_date", { ascending: false });
-
-  if (error) throw error;
-
-  return data ?? [];
-};
+const trainingSessionsKey = (studioId: string | "all" | null) =>
+  ["training_sessions", studioId] as const;
 
 export const useTrainingSessions = () => {
+  const { selectedStudioId, isAllStudios } = useStudio();
+
+  const resolvedStudioId =
+    !selectedStudioId || isAllStudios ? undefined : selectedStudioId;
+
   return useQuery({
-    queryKey: QUERY_KEY,
-    queryFn: fetchTrainingSessions,
+    queryKey: trainingSessionsKey(selectedStudioId),
+    queryFn: () => fetchTrainingSessionsByStudio(resolvedStudioId),
+    enabled: isAllStudios || !!selectedStudioId,
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
   });
 };
 
 export const useCreateTrainingSession = () => {
   const queryClient = useQueryClient();
+  const { selectedStudioId, isAllStudios } = useStudio();
 
   return useMutation({
     mutationFn: async (
-      newSession: Omit<TrainingSession, "id" | "created_at">
+      newSession: Omit<TrainingSession, "id" | "created_at" | "studio_id"> & {
+        studio_id?: string;
+      },
     ) => {
-      const payload = {
-        ...newSession,
-        studio_id: newSession.studio_id?.trim() || null,
-        topic: newSession.topic?.trim() || null,
-        facilitator_name: newSession.facilitator_name?.trim() || null,
-        description: newSession.description?.trim() || null,
-        goals: newSession.goals?.trim() || null,
-        notes: newSession.notes?.trim() || null,
-        material_url: newSession.material_url?.trim() || null,
-        material_name: newSession.material_name?.trim() || null,
-      };
+      const studioId = newSession.studio_id || selectedStudioId;
 
-      const { data, error } = await supabase
-        .from("training_sessions")
-        .insert([payload])
-        .select()
-        .single();
+      if (!studioId || studioId === "all" || isAllStudios) {
+        throw new Error("Select a specific studio before creating a training session.");
+      }
 
-      if (error) throw error;
-
-      return data;
+      return createTrainingSessionData({
+        title: newSession.title,
+        session_date: newSession.session_date,
+        topic: newSession.topic || undefined,
+        facilitator_name: newSession.facilitator_name || undefined,
+        studio_id: studioId,
+        description: newSession.description || undefined,
+        goals: newSession.goals || undefined,
+        notes: newSession.notes || undefined,
+        material_url: newSession.material_url || undefined,
+        material_name: newSession.material_name || undefined,
+      });
     },
 
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
-    },
-  });
-};
-
-export const useDeleteTrainingSession = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("training_sessions")
-        .delete()
-        .eq("id", id);
-
-      if (error) throw error;
-    },
-
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      queryClient.invalidateQueries({
+        queryKey: trainingSessionsKey(selectedStudioId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["training_sessions", "all"],
+      });
     },
   });
 };
 
 export const useUpdateTrainingSession = () => {
   const queryClient = useQueryClient();
+  const { selectedStudioId } = useStudio();
 
   return useMutation({
-    mutationFn: async (updatedSession: Partial<TrainingSession> & { id: string }) => {
-      const payload = {
-        ...updatedSession,
-        studio_id: updatedSession.studio_id?.trim() || null,
-        topic: updatedSession.topic?.trim() || null,
-        facilitator_name: updatedSession.facilitator_name?.trim() || null,
-        description: updatedSession.description?.trim() || null,
-        goals: updatedSession.goals?.trim() || null,
-        notes: updatedSession.notes?.trim() || null,
-        material_url: updatedSession.material_url?.trim() || null,
-        material_name: updatedSession.material_name?.trim() || null,
-      };
+    mutationFn: async (
+      updatedSession: Partial<TrainingSession> & { id: string },
+    ) => {
+      const studioId = updatedSession.studio_id || selectedStudioId;
 
-      const { data, error } = await supabase
-        .from("training_sessions")
-        .update(payload)
-        .eq("id", updatedSession.id)
-        .select()
-        .single();
+      if (!studioId || studioId === "all") {
+        throw new Error("A specific studio is required to update this training session.");
+      }
 
-      if (error) throw error;
-
-      return data;
+      return updateTrainingSessionData(updatedSession.id, {
+        title: updatedSession.title || "",
+        session_date: updatedSession.session_date || "",
+        topic: updatedSession.topic || undefined,
+        facilitator_name: updatedSession.facilitator_name || undefined,
+        studio_id: studioId,
+        description: updatedSession.description || undefined,
+        goals: updatedSession.goals || undefined,
+        notes: updatedSession.notes || undefined,
+        material_url: updatedSession.material_url || undefined,
+        material_name: updatedSession.material_name || undefined,
+      });
     },
 
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      queryClient.invalidateQueries({
+        queryKey: trainingSessionsKey(selectedStudioId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["training_sessions", "all"],
+      });
     },
   });
 };
