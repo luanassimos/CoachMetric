@@ -21,26 +21,23 @@ type PricingPlan = {
   monthly?: {
     price: string;
     suffix: string;
-    checkoutHref: string;
+    ctaHref: string;
   };
   annual?: {
     price: string;
     suffix: string;
     helper: string;
-    checkoutHref: string;
+    ctaHref: string;
   };
 };
 
-const stripeLinks = {
-  starter: {
-    monthly: "https://buy.stripe.com/3cI9AVeAmgdt73M2ry3F607",
-    annual: "https://buy.stripe.com/eVq8wRgIu0evafY3vC3F608",
-  },
-  growth: {
-    monthly: "https://buy.stripe.com/bJe00lgIu0ev87QaY43F605",
-    annual: "https://buy.stripe.com/cNi14p1NA7GX2Nw7LS3F609",
-  },
-} as const;
+function buildBillingIntentHref(
+  planKey: "starter" | "growth",
+  billingInterval: BillingInterval,
+) {
+  const redirect = `/settings/billing?intent=checkout&plan=${planKey}&interval=${billingInterval}`;
+  return `/login?redirect=${encodeURIComponent(redirect)}`;
+}
 
 const pricingPlans: PricingPlan[] = [
   {
@@ -61,13 +58,13 @@ const pricingPlans: PricingPlan[] = [
     monthly: {
       price: "$99",
       suffix: "/ studio / mo",
-      checkoutHref: stripeLinks.starter.monthly,
+      ctaHref: buildBillingIntentHref("starter", "monthly"),
     },
     annual: {
       price: "$79",
       suffix: "/ studio / mo",
       helper: "billed annually at $948 per studio",
-      checkoutHref: stripeLinks.starter.annual,
+      ctaHref: buildBillingIntentHref("starter", "annual"),
     },
   },
   {
@@ -90,13 +87,13 @@ const pricingPlans: PricingPlan[] = [
     monthly: {
       price: "$249",
       suffix: "/ studio / mo",
-      checkoutHref: stripeLinks.growth.monthly,
+      ctaHref: buildBillingIntentHref("growth", "monthly"),
     },
     annual: {
       price: "$199",
       suffix: "/ studio / mo",
       helper: "billed annually at $2,388 per studio",
-      checkoutHref: stripeLinks.growth.annual,
+      ctaHref: buildBillingIntentHref("growth", "annual"),
     },
   },
   {
@@ -410,7 +407,7 @@ function renderPricingSectionMarkup(billingInterval: BillingInterval) {
           ? `<div class="pricing-helper">${activeInterval.helper}</div>`
           : "";
 
-      const ctaHref = activeInterval?.checkoutHref ?? plan.contactHref ?? "#";
+      const ctaHref = activeInterval?.ctaHref ?? plan.contactHref ?? "#";
 
       return `
         <article class="pricing-card ${plan.cardClassName}" role="listitem">

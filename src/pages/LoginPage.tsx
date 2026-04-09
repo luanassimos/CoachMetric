@@ -16,6 +16,7 @@ export default function LoginPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const resetSuccess = searchParams.get("reset") === "success";
   const resetEmail = searchParams.get("email") ?? "";
+  const redirectPath = searchParams.get("redirect") ?? "";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -44,7 +45,10 @@ export default function LoginPage() {
 
     try {
       await signIn(email, password);
-      navigate("/dashboard", { replace: true });
+      navigate(
+        redirectPath.startsWith("/") ? redirectPath : "/dashboard",
+        { replace: true },
+      );
     } catch (err: unknown) {
       console.error(err);
       setError("Invalid email or password.");

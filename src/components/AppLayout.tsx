@@ -7,11 +7,45 @@ import { Button } from "@/components/ui/button";
 import StudioSwitcher from "./StudioSwitcher";
 import ReportIssueDialog from "@/components/ReportIssueDialog";
 import { useStudio } from "@/contexts/StudioContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { useUserStudios } from "@/hooks/useUserStudios";
+import { billingEnforcementEnabled, canManageStudioBilling } from "@/lib/billing";
+import { useStudioBillingState } from "@/hooks/useStudioBilling";
+import { canAccessAdminFeatures } from "@/lib/devAccess";
+import StudioBillingBanner from "@/components/billing/StudioBillingBanner";
+import StudioEntitlementGate from "@/components/billing/StudioEntitlementGate";
 
 export default function AppLayout() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const navigate = useNavigate();
-  const { selectedStudioId } = useStudio();
+  const { selectedStudioId, selectedStudio } = useStudio();
+  const { globalRole } = useAuth();
+  const { memberships } = useUserStudios();
+  const billingQuery = useStudioBillingState(
+    billingEnforcementEnabled &&
+      selectedStudioId &&
+      selectedStudioId !== "all"
+      ? selectedStudioId
+      : null,
+  );
+
+  const selectedStudioRole =
+    memberships.find((membership) => membership.studio_id === selectedStudioId)
+      ?.role ?? null;
+  const canManageBilling = canManageStudioBilling({
+    globalRole,
+    studioRole: selectedStudioRole,
+  });
+  const shouldBypassBillingBanner =
+    canAccessAdminFeatures(globalRole) ||
+    !selectedStudioId ||
+    selectedStudioId === "all" ||
+    !selectedStudio ||
+    !billingQuery.data ||
+    (!billingEnforcementEnabled &&
+      !billingQuery.data.billing.stripe_customer_id &&
+      !billingQuery.data.billing.stripe_subscription_id &&
+      billingQuery.data.billing.status === "inactive");
 
   const homeHref =
     selectedStudioId && selectedStudioId !== "all"
@@ -135,8 +169,19 @@ export default function AppLayout() {
 </div>
 
         <div className="mx-auto w-full min-w-0 max-w-[1440px] px-3 py-3 sm:px-6 sm:py-5 md:px-8 md:py-8 xl:px-10">
-          <div className="min-w-0">
-            <Outlet />
+          <div className="min-w-0 space-y-4">
+            {!shouldBypassBillingBanner ? (
+              <StudioBillingBanner
+                studioId={selectedStudioId}
+                studioName={selectedStudio.name}
+                billing={billingQuery.data.billing}
+                canManageBilling={canManageBilling}
+              />
+            ) : null}
+
+            <StudioEntitlementGate>
+              <Outlet />
+            </StudioEntitlementGate>
           </div>
         </div>
       </main>

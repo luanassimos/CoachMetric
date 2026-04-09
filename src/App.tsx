@@ -37,6 +37,7 @@ import PrivacyPage from "@/pages/PrivacyPage";
 import BillingPage from "@/pages/BillingPage";
 import SecurityPage from "@/pages/SecurityPage";
 import AcceptableUsePage from "@/pages/AcceptableUsePage";
+import StudioBillingPage from "@/pages/StudioBillingPage";
 
 
 const queryClient = new QueryClient();
@@ -122,6 +123,7 @@ function App() {
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/actions" element={<ActionCenterPage />} />
                 <Route path="/settings" element={<Settings />} />
+                <Route path="/settings/billing" element={<StudioBillingPage />} />
 
                 <Route path="/coaches" element={<CoachesPage />} />
                 <Route path="/coaches/new" element={<NewCoachPage />} />

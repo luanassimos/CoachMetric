@@ -9,6 +9,7 @@ import {
   Sparkles,
   LogOut,
   Wrench,
+  CreditCard,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStudio } from "@/contexts/StudioContext";
@@ -23,6 +24,7 @@ const navItems = [
   { to: "/evaluations/new", icon: ClipboardCheck, label: "New Evaluation" },
   { to: "/training", icon: GraduationCap, label: "Training" },
   { to: "/studios", icon: Building2, label: "Studios" },
+  { to: "/settings/billing", icon: CreditCard, label: "Billing" },
 ];
 
 type Props = {
