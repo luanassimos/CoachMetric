@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import { getPerformanceBand } from "@/utils/scoring";
+import { getScoreHealthMeta } from "@/utils/enterpriseIntelligence";
 
 type BadgeSize = "sm" | "lg" | "hero";
 
@@ -25,10 +26,7 @@ const scoreLabelSizeMap: Record<BadgeSize, string> = {
 };
 
 function getScoreTone(score: number) {
-  if (score >= 90) return "text-emerald-400";
-  if (score >= 75) return "text-blue-400";
-  if (score >= 60) return "text-amber-400";
-  return "text-red-400";
+  return getScoreHealthMeta(score).textClass;
 }
 
 export function PerformanceBadge({

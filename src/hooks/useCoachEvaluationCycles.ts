@@ -12,7 +12,7 @@ export function useCoachEvaluationCycles() {
   const { selectedStudioId, isAllStudios, isReady } = useStudio();
 
   const query = useQuery({
-    queryKey: ["coach_evaluation_cycle", isAllStudios ? "all" : selectedStudioId],
+    queryKey: ["coach_evaluation_cycle", selectedStudioId],
     queryFn: async (): Promise<CoachEvaluationCycle[]> => {
       let queryBuilder = supabase
         .from("coach_evaluation_cycle")
@@ -28,9 +28,11 @@ export function useCoachEvaluationCycles() {
 
       return (data ?? []) as CoachEvaluationCycle[];
     },
-    enabled: isReady && (isAllStudios || !!selectedStudioId),
-    staleTime: 60_000,
+    enabled: isReady && (!!selectedStudioId || isAllStudios),
     placeholderData: keepPreviousData,
+    staleTime: 5 * 60_000,
+    gcTime: 10 * 60_000,
+    refetchOnWindowFocus: false,
     retry: false,
   });
 

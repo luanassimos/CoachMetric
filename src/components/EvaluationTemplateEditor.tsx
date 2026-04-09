@@ -39,6 +39,7 @@ import {
   EvaluationInputType,
   EvaluationTemplate,
   EvaluationTemplateItem,
+  EvaluationTemplateItemOption,
   EvaluationTemplateSection,
 } from "@/lib/types";
 
@@ -179,7 +180,7 @@ export default function EvaluationTemplateEditor({
       }
 
       if (templateIdToLoad) {
-        const full = await getFullEvaluationTemplate(templateIdToLoad);
+        const full = await getFullEvaluationTemplate(templateIdToLoad, studioId);
         setSelectedTemplate(full);
 
         const firstSectionId = full?.sections?.[0]?.id;
@@ -197,7 +198,7 @@ export default function EvaluationTemplateEditor({
 
   async function loadSelectedTemplate(templateId: string) {
     setSelectedTemplateId(templateId);
-    const full = await getFullEvaluationTemplate(templateId);
+    const full = await getFullEvaluationTemplate(templateId, studioId);
     setSelectedTemplate(full);
 
     const firstSectionId = full?.sections?.[0]?.id;
@@ -250,7 +251,7 @@ export default function EvaluationTemplateEditor({
 
     try {
       setRestoringTemplate(true);
-      await restoreDefaultEvaluationTemplate(selectedTemplate.id);
+      await restoreDefaultEvaluationTemplate(selectedTemplate.id, studioId);
       await loadSelectedTemplate(selectedTemplate.id);
       toast.success("Default template restored");
     } catch (error) {
@@ -267,7 +268,7 @@ export default function EvaluationTemplateEditor({
     try {
       setSavingTemplate(true);
 
-      const updated = await updateEvaluationTemplate(selectedTemplate.id, {
+      const updated = await updateEvaluationTemplate(selectedTemplate.id, studioId, {
         name: selectedTemplate.name,
         description: selectedTemplate.description ?? null,
       });
@@ -320,7 +321,7 @@ export default function EvaluationTemplateEditor({
     if (!confirmed) return;
 
     try {
-      await deleteEvaluationTemplate(selectedTemplate.id);
+      await deleteEvaluationTemplate(selectedTemplate.id, studioId);
 
       toast.success("Template deleted");
 
@@ -350,6 +351,7 @@ export default function EvaluationTemplateEditor({
           : 0;
 
       const created = await createEvaluationSection({
+        studio_id: studioId,
         template_id: selectedTemplate.id,
         title: "New Section",
         description: null,
@@ -390,7 +392,7 @@ export default function EvaluationTemplateEditor({
 
   async function handleSaveSection(section: FullSection) {
     try {
-      await updateEvaluationSection(section.id, {
+      await updateEvaluationSection(section.id, studioId, {
         title: section.title,
         description: section.description ?? null,
         sort_order: section.sort_order,
@@ -412,7 +414,7 @@ export default function EvaluationTemplateEditor({
     if (!selectedTemplate) return;
 
     try {
-      await deleteEvaluationSection(sectionId);
+      await deleteEvaluationSection(sectionId, studioId);
       await loadSelectedTemplate(selectedTemplate.id);
       toast.success("Section deleted");
     } catch (error) {
@@ -432,6 +434,7 @@ export default function EvaluationTemplateEditor({
           : 0;
 
       const created = await createEvaluationItem({
+        studio_id: studioId,
         section_id: section.id,
         label: "New Item",
         input_type: "score",
@@ -469,15 +472,16 @@ export default function EvaluationTemplateEditor({
     sectionId: string,
     itemId: string,
     field:
-      | "label"
-      | "description"
-      | "input_type"
-      | "weight"
-      | "min_score"
-      | "max_score"
-      | "sort_order"
-      | "is_required"
-      | "is_active",
+  | "label"
+  | "description"
+  | "input_type"
+  | "weight"
+  | "min_score"
+  | "max_score"
+  | "sort_order"
+  | "is_required"
+  | "is_active"
+  | "options_json",
     value: string | number | boolean | null,
   ) {
     setSelectedTemplate((prev) => {
@@ -501,7 +505,7 @@ export default function EvaluationTemplateEditor({
 
   async function handleSaveItem(item: EvaluationTemplateItem) {
     try {
-      await updateEvaluationItem(item.id, {
+      await updateEvaluationItem(item.id, studioId, {
         label: item.label,
         description: item.description ?? null,
         input_type: item.input_type,
@@ -511,7 +515,10 @@ export default function EvaluationTemplateEditor({
         sort_order: item.sort_order,
         is_required: item.is_required,
         is_active: item.is_active,
-        options_json: item.options_json ?? null,
+        options_json:
+  Array.isArray(item.options_json) && item.options_json.length > 0
+    ? item.options_json
+    : null,
       });
 
       if (selectedTemplate) {
@@ -529,7 +536,7 @@ export default function EvaluationTemplateEditor({
     if (!selectedTemplate) return;
 
     try {
-      await deleteEvaluationItem(itemId);
+      await deleteEvaluationItem(itemId, studioId);
       await loadSelectedTemplate(selectedTemplate.id);
       toast.success("Item deleted");
     } catch (error) {
@@ -1155,24 +1162,76 @@ export default function EvaluationTemplateEditor({
                                           </div>
 
                                           <FieldBlock
-                                            label="Description"
-                                            help="Optional. Useful if you want to leave editing notes for managers."
-                                          >
-                                            <Textarea
-                                              value={item.description ?? ""}
-                                              onChange={(e) =>
-                                                handleItemLocalChange(
-                                                  section.id,
-                                                  item.id,
-                                                  "description",
-                                                  e.target.value,
-                                                )
-                                              }
-                                              rows={2}
-                                            />
-                                          </FieldBlock>
+  label="Description"
+  help="Optional. Useful if you want to leave editing notes for managers."
+>
+  <Textarea
+    value={item.description ?? ""}
+    onChange={(e) =>
+      handleItemLocalChange(
+        section.id,
+        item.id,
+        "description",
+        e.target.value,
+      )
+    }
+    rows={2}
+  />
+</FieldBlock>
 
-                                          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+{item.input_type === "select" && (
+  <FieldBlock
+    label="Select Options"
+    help="One option per line. Order defines score (top = lowest)."
+  >
+    <Textarea
+      value={(item.options_json ?? [])
+        .map((option) => option.label)
+        .join("\n")}
+      onChange={(e) => {
+        const lines = e.target.value
+          .split("\n")
+          .map((l) => l.trim())
+          .filter(Boolean);
+
+        setSelectedTemplate((prev) => {
+          if (!prev) return prev;
+
+          return {
+            ...prev,
+            sections: (prev.sections ?? []).map((s) => {
+              if (s.id !== section.id) return s;
+
+              return {
+                ...s,
+                items: (s.items ?? []).map((existingItem) =>
+                  existingItem.id === item.id
+                    ? {
+                        ...existingItem,
+                        options_json:
+                          lines.length > 0
+                            ? lines.map(
+                                (label, index): EvaluationTemplateItemOption => ({
+                                  label,
+                                  value: String(index + 1),
+                                  score: index + 1,
+                                }),
+                              )
+                            : null,
+                      }
+                    : existingItem,
+                ),
+              };
+            }),
+          };
+        });
+      }}
+      rows={4}
+    />
+  </FieldBlock>
+)}
+
+<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                                             <FieldBlock
                                               label="Weight"
                                               help="Higher weight gives this item more influence in scoring."

@@ -22,6 +22,7 @@ import { generateEvaluationInsights } from "@/utils/evaluationInsights";
 import { SECTION_MAX_SCORES } from "@/utils/scoring";
 import {
   calculateEvaluationScores,
+  filterItemsByCondition,
   sanitizeResponsesByTemplate,
   type EvaluationResponseInput,
   type EvaluationTemplateSection,
@@ -30,6 +31,7 @@ import { PerformanceBadge, ScoreDisplay } from "@/components/PerformanceBadge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
+import { resolveEffectiveInputType } from "@/lib/resolveEffectiveInputType";
 
 type EvaluationRecord = {
   id: string;
@@ -105,7 +107,7 @@ type InsightSection = {
     section_id: string;
     label: string;
     description?: string | null;
-    input_type: "boolean" | "score" | "select" | "text";
+    input_type: "boolean" | "select" | "text" | "score";
     min_score?: number | null;
     max_score?: number | null;
     weight?: number | null;
@@ -172,13 +174,6 @@ function getV2DisplayValue(
   return response.response_text ?? null;
 }
 
-function isDetailedValueAnswered(value: string | number | boolean | null) {
-  if (typeof value === "boolean") return true;
-  if (typeof value === "number") return true;
-  if (typeof value === "string") return value.trim().length > 0;
-  return false;
-}
-
 function getSectionTone(pct: number) {
   if (pct >= 90) return "bg-emerald-500";
   if (pct >= 75) return "bg-blue-500";
@@ -190,8 +185,7 @@ function getSectionLabelTone(pct: number) {
   if (pct >= 90) {
     return {
       label: "Strong",
-      className:
-        "border-emerald-500/20 bg-emerald-500/10 text-emerald-400",
+      className: "border-emerald-500/20 bg-emerald-500/10 text-emerald-400",
     };
   }
 
@@ -222,24 +216,46 @@ function getHeroRingTone(score: number) {
   return "from-red-500/25 via-red-500/10 to-transparent";
 }
 
+function isAnsweredResponse(response?: EvaluationResponseInput) {
+  if (!response) return false;
+  if (typeof response.response_check === "boolean") return true;
+  if (typeof response.response_score === "number") return true;
+  if ((response.response_text ?? "").trim().length > 0) return true;
+  return false;
+}
+
+function isFirstTimerSection(section: {
+  title?: string | null;
+  module_key?: string | null;
+}) {
+  const title = String(section.title ?? "").trim().toLowerCase();
+  const moduleKey = String(section.module_key ?? "").trim().toLowerCase();
+
+  return title === "first timer intro" || moduleKey === "first_timer_intro";
+}
+
 export default function EvaluationDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { selectedStudioId, isAllStudios, setSelectedStudioId, isReady } = useStudio();
+  const { selectedStudioId, isAllStudios, setSelectedStudioId, isReady } =
+    useStudio();
   const { coaches, loading: coachesLoading } = useCoaches();
 
   const routeStudioId = searchParams.get("studio");
   const resolvedStudioScope =
-    routeStudioId === "all"
-      ? undefined
-      : routeStudioId || (isAllStudios ? undefined : selectedStudioId || undefined);
-      useEffect(() => {
-  if (!routeStudioId || routeStudioId === "all") return;
-  if (routeStudioId !== selectedStudioId) {
-    setSelectedStudioId(routeStudioId as string | "all");
-  }
-}, [routeStudioId, selectedStudioId, setSelectedStudioId]);
+    routeStudioId && routeStudioId !== "all"
+      ? routeStudioId
+      : !isAllStudios && selectedStudioId && selectedStudioId !== "all"
+        ? selectedStudioId
+        : undefined;
+
+  useEffect(() => {
+    if (!routeStudioId || routeStudioId === "all") return;
+    if (routeStudioId !== selectedStudioId) {
+      setSelectedStudioId(routeStudioId as string | "all");
+    }
+  }, [routeStudioId, selectedStudioId, setSelectedStudioId]);
 
   const {
     data: evaluation,
@@ -252,15 +268,19 @@ export default function EvaluationDetailPage() {
         throw new Error("Missing evaluation id.");
       }
 
+      if (!resolvedStudioScope) {
+        throw new Error("A studio scope is required to open this evaluation.");
+      }
+
       return (await fetchEvaluationById(
         id,
         resolvedStudioScope,
       )) as EvaluationRecord;
     },
     enabled:
-  isReady &&
-  !!id &&
-  (isAllStudios || !!selectedStudioId || routeStudioId === "all"),
+      isReady &&
+      !!id &&
+      !!resolvedStudioScope,
     retry: false,
     staleTime: 30_000,
   });
@@ -280,7 +300,7 @@ export default function EvaluationDetailPage() {
       if (error) throw error;
       return (data ?? []) as V2ResponseRow[];
     },
-    enabled: Boolean(id),
+    enabled: Boolean(id && resolvedStudioScope),
   });
 
   const coach = useMemo(() => {
@@ -303,10 +323,7 @@ export default function EvaluationDetailPage() {
       return snapshotTemplate;
     }
 
-    if (
-      "sections" in snapshotTemplate &&
-      Array.isArray(snapshotTemplate.sections)
-    ) {
+    if ("sections" in snapshotTemplate && Array.isArray(snapshotTemplate.sections)) {
       return snapshotTemplate.sections;
     }
 
@@ -329,6 +346,15 @@ export default function EvaluationDetailPage() {
       evaluation?.green_star_present,
     ],
   );
+
+  const visibleV2Sections = useMemo(() => {
+    return v2SectionsFromSnapshot.filter((section) => {
+      if (isFirstTimerSection(section) && !insightContext.greenStar) {
+        return false;
+      }
+      return true;
+    });
+  }, [v2SectionsFromSnapshot, insightContext.greenStar]);
 
   const v2ResponsesByItemId = useMemo(() => {
     const tableResponses = Object.fromEntries(
@@ -359,14 +385,14 @@ export default function EvaluationDetailPage() {
       Object.keys(tableResponses).length > 0 ? tableResponses : jsonResponses;
 
     return sanitizeResponsesByTemplate({
-      sections: v2SectionsFromSnapshot,
+      sections: visibleV2Sections,
       responsesByItemId: rawResponses,
       context: insightContext,
     });
   }, [
     v2ResponsesQuery.data,
     evaluation?.responses_json,
-    v2SectionsFromSnapshot,
+    visibleV2Sections,
     insightContext,
   ]);
 
@@ -374,30 +400,32 @@ export default function EvaluationDetailPage() {
     if (!isV2Evaluation) return null;
 
     return calculateEvaluationScores({
-      sections: v2SectionsFromSnapshot,
+      sections: visibleV2Sections,
       responsesByItemId: v2ResponsesByItemId,
       context: insightContext,
     });
-  }, [
-    isV2Evaluation,
-    v2SectionsFromSnapshot,
-    v2ResponsesByItemId,
-    insightContext,
-  ]);
+  }, [isV2Evaluation, visibleV2Sections, v2ResponsesByItemId, insightContext]);
 
   const insightSections = useMemo<InsightSection[]>(() => {
     if (!isV2Evaluation) return [];
 
-    return v2SectionsFromSnapshot.map((section) => ({
-      id: section.id,
-      title: section.title,
-      module_key: section.module_key ?? "class_performance",
-      display_order: section.display_order,
-      items: [...section.items]
-        .filter((item) => item.is_active !== false)
-        .sort((a, b) => Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0)),
-    }));
-  }, [isV2Evaluation, v2SectionsFromSnapshot]);
+    return visibleV2Sections
+      .map((section) => ({
+        id: section.id,
+        title: section.title,
+        module_key: section.module_key ?? "class_performance",
+        display_order: section.display_order,
+        items: [...section.items]
+          .filter((item) => item.is_active !== false)
+          .filter((item) => filterItemsByCondition(item, insightContext))
+          .map((item) => ({
+            ...item,
+            input_type: resolveEffectiveInputType(item),
+          }))
+          .sort((a, b) => Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0)),
+      }))
+      .filter((section) => section.items.length > 0);
+  }, [isV2Evaluation, visibleV2Sections, insightContext]);
 
   const evaluationInsights = useMemo(() => {
     if (!isV2Evaluation) return [];
@@ -423,7 +451,7 @@ export default function EvaluationDetailPage() {
   const legacySections = useMemo(() => {
     if (!evaluation) return [];
 
-    return [
+    const sections = [
       {
         label: "Pre-Class",
         score: evaluation.pre_class_score ?? 0,
@@ -457,8 +485,7 @@ export default function EvaluationDetailPage() {
         pct:
           SECTION_MAX_SCORES.intro > 0
             ? Math.round(
-                ((evaluation.intro_score ?? 0) / SECTION_MAX_SCORES.intro) *
-                  100,
+                ((evaluation.intro_score ?? 0) / SECTION_MAX_SCORES.intro) * 100,
               )
             : 0,
       },
@@ -469,8 +496,7 @@ export default function EvaluationDetailPage() {
         pct:
           SECTION_MAX_SCORES.class > 0
             ? Math.round(
-                ((evaluation.class_score ?? 0) / SECTION_MAX_SCORES.class) *
-                  100,
+                ((evaluation.class_score ?? 0) / SECTION_MAX_SCORES.class) * 100,
               )
             : 0,
       },
@@ -488,42 +514,62 @@ export default function EvaluationDetailPage() {
             : 0,
       },
     ];
-  }, [evaluation]);
+
+    return sections.filter((section) => {
+      if (
+        section.label.toLowerCase() === "first timer intro" &&
+        !insightContext.greenStar
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [evaluation, insightContext.greenStar]);
 
   const sections = isV2Evaluation ? v2SectionsBreakdown : legacySections;
 
   const detailedSections = useMemo<DetailedSection[]>(() => {
     if (!isV2Evaluation) return [];
 
-    return v2SectionsFromSnapshot.map((section) => {
-      const sectionItems = [...section.items]
-        .filter((item) => item.is_active !== false)
-        .sort((a, b) => Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0));
+    return visibleV2Sections
+      .map((section) => {
+        const sectionItems = [...section.items]
+          .filter((item) => item.is_active !== false)
+          .filter((item) => filterItemsByCondition(item, insightContext))
+          .map((item) => ({
+            ...item,
+            input_type: resolveEffectiveInputType(item),
+          }))
+          .sort((a, b) => Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0));
 
-      const detailedItems = sectionItems.map((item) => {
-        const value = getV2DisplayValue(item, v2ResponsesByItemId[item.id]);
-        const answered = isDetailedValueAnswered(value);
+        const detailedItems = sectionItems.map((item) => {
+          const response = v2ResponsesByItemId[item.id];
+          const value = getV2DisplayValue(item, response);
+          const answered = isAnsweredResponse(response);
+
+          return {
+            id: item.id,
+            label: item.label,
+            description: item.description ?? null,
+            type: item.input_type,
+            value,
+            answered,
+            required: item.is_required !== false,
+          };
+        });
+
+        const requiredItems = detailedItems.filter((item) => item.required);
 
         return {
-          id: item.id,
-          label: item.label,
-          description: item.description ?? null,
-          type: item.input_type,
-          value,
-          answered,
-          required: Boolean(item.is_required),
+          code: section.module_key ?? section.id,
+          label: section.title,
+          answeredCount: requiredItems.filter((item) => item.answered).length,
+          totalCount: requiredItems.length,
+          items: detailedItems,
         };
-      });
-
-      return {
-        code: section.module_key ?? section.id,
-        label: section.title,
-        answeredCount: detailedItems.filter((item) => item.answered).length,
-        totalCount: detailedItems.length,
-        items: detailedItems,
-      };
-    });
-  }, [isV2Evaluation, v2SectionsFromSnapshot, v2ResponsesByItemId]);
+      })
+      .filter((section) => section.items.length > 0);
+  }, [isV2Evaluation, visibleV2Sections, v2ResponsesByItemId, insightContext]);
 
   const totalDetailedItems = useMemo(() => {
     return detailedSections.reduce((sum, section) => sum + section.totalCount, 0);
@@ -542,15 +588,36 @@ export default function EvaluationDetailPage() {
   );
 
   if (
-  !isReady ||
-  (!isAllStudios && !selectedStudioId && routeStudioId !== "all") ||
-  isLoading ||
-  coachesLoading ||
-  v2ResponsesQuery.isLoading
-) {
+    !isReady ||
+    (!isAllStudios && !selectedStudioId && routeStudioId !== "all") ||
+    isLoading ||
+    coachesLoading ||
+    v2ResponsesQuery.isLoading
+  ) {
     return (
       <div className="p-4 text-sm text-muted-foreground sm:p-6">
         Loading evaluation...
+      </div>
+    );
+  }
+
+  if (!resolvedStudioScope) {
+    return (
+      <div className="space-y-4">
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back
+        </button>
+
+        <SurfaceCard className="p-6">
+          <p className="text-sm text-muted-foreground">
+            Select a specific studio before opening this evaluation.
+          </p>
+        </SurfaceCard>
       </div>
     );
   }
@@ -595,25 +662,23 @@ export default function EvaluationDetailPage() {
       ].reduce((sum, value) => sum + value, 0);
 
   const coachProfileHref = coach
-  ? `${
-      `/coaches/${coach.id}`
-    }${
-      routeStudioId && routeStudioId !== "all"
-        ? `?studio=${routeStudioId}`
-        : selectedStudioId && selectedStudioId !== "all"
-          ? `?studio=${selectedStudioId}`
-          : evaluation.studio_id
-            ? `?studio=${evaluation.studio_id}`
-            : ""
-    }`
-  : null;
+    ? `${`/coaches/${coach.id}`}${
+        routeStudioId && routeStudioId !== "all"
+          ? `?studio=${routeStudioId}`
+          : selectedStudioId && selectedStudioId !== "all"
+            ? `?studio=${selectedStudioId}`
+            : evaluation.studio_id
+              ? `?studio=${evaluation.studio_id}`
+              : ""
+      }`
+    : null;
 
   const dashboardHref =
-  routeStudioId && routeStudioId !== "all"
-    ? `/?studio=${routeStudioId}`
-    : selectedStudioId && selectedStudioId !== "all"
-      ? `/?studio=${selectedStudioId}`
-      : "/";
+    routeStudioId && routeStudioId !== "all"
+      ? `/?studio=${routeStudioId}`
+      : selectedStudioId && selectedStudioId !== "all"
+        ? `/?studio=${selectedStudioId}`
+        : "/";
 
   return (
     <div className="mx-auto w-full max-w-6xl min-w-0 space-y-6 sm:space-y-7">
@@ -984,25 +1049,22 @@ export default function EvaluationDetailPage() {
         </Button>
 
         {coachProfileHref ? (
-          <Button
-            variant="outline"
-            onClick={() => navigate(coachProfileHref)}
-          >
+          <Button variant="outline" onClick={() => navigate(coachProfileHref)}>
             View Coach
           </Button>
         ) : null}
 
         <Button
-  onClick={() =>
-    navigate(
-      evaluation.studio_id
-        ? `/evaluations-v2/new?studio=${evaluation.studio_id}`
-        : "/evaluations-v2/new",
-    )
-  }
->
-  New Evaluation
-</Button>
+          onClick={() =>
+            navigate(
+              evaluation.studio_id
+                ? `/evaluations-v2/new?studio=${evaluation.studio_id}`
+                : "/evaluations-v2/new",
+            )
+          }
+        >
+          New Evaluation
+        </Button>
       </div>
     </div>
   );

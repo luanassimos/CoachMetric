@@ -83,29 +83,25 @@ export default function StudiosPage() {
   setCreateDraft({ name: "", city: "", state: "" });
   await queryClient.invalidateQueries({ queryKey: ["studios"] });
   setSelectedStudioId(createdStudio.id);
-  navigate(`/studios?studio=${createdStudio.id}`);
 },
   });
 
   const updateStudioMutation = useMutation({
-    mutationFn: async ({
-      id,
-      payload,
-    }: {
-      id: string;
-      payload: DraftState;
-    }) => {
-      return updateStudio(id, payload);
-    },
-    onSuccess: async (_, deletedId) => {
-  setConfirmDeleteId(null);
-  await queryClient.invalidateQueries({ queryKey: ["studios"] });
-
-  if (selectedStudioId && String(selectedStudioId) === String(deletedId)) {
-    navigate("/studios");
-  }
-},
-  });
+  mutationFn: async ({
+    id,
+    payload,
+  }: {
+    id: string;
+    payload: DraftState;
+  }) => {
+    return updateStudio(id, payload);
+  },
+  onSuccess: async () => {
+    setEditingId(null);
+    setEditingDraft({ name: "", city: "", state: "" });
+    await queryClient.invalidateQueries({ queryKey: ["studios"] });
+  },
+});
 
   const deleteStudioMutation = useMutation<string, Error, string>({
   mutationFn: async (id: string) => {
@@ -354,9 +350,8 @@ export default function StudiosPage() {
   type="button"
   variant="outline"
   onClick={() => {
-    setSelectedStudioId(studio.id);
-    navigate(`/studios?studio=${studio.id}`);
-  }}
+  setSelectedStudioId(studio.id);
+}}
 >
   Set Active
 </Button>

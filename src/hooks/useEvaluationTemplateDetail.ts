@@ -11,53 +11,72 @@ export function useEvaluationTemplateDetail() {
 
   return useQuery({
     queryKey: ["evaluation-template-v2", selectedStudioId],
-    enabled: !!selectedStudioId,
+    enabled: !!selectedStudioId && selectedStudioId !== "all",
     queryFn: async (): Promise<{ sections: EvaluationTemplateSection[] }> => {
-      const studioFilter =
-        selectedStudioId === "all" ? undefined : selectedStudioId;
+      if (!selectedStudioId || selectedStudioId === "all") {
+        return { sections: [] };
+      }
 
-      const [sectionsResult, itemsResult] = await Promise.all([
-        supabase
-          .from("evaluation_template_sections")
-          .select("id, title, module_key, display_order")
-          .order("display_order", { ascending: true }),
+      const { data: templates, error: templatesError } = await supabase
+        .from("evaluation_templates")
+        .select("id")
+        .eq("studio_id", selectedStudioId);
 
-        supabase
-          .from("evaluation_template_items")
-          .select(`
-            id,
-            section_id,
-            label,
-            description,
-            input_type,
-            min_score,
-            max_score,
-            weight,
-            sort_order,
-            is_required,
-            is_active,
-            options_json,
-            condition
-          `)
-          .eq("is_active", true)
-          .order("sort_order", { ascending: true }),
-      ]);
+      if (templatesError) throw templatesError;
 
-      if (sectionsResult.error) throw sectionsResult.error;
-      if (itemsResult.error) throw itemsResult.error;
+      const templateIds = (templates ?? []).map((template) => template.id as string);
+
+      if (templateIds.length === 0) {
+        return { sections: [] };
+      }
+
+      const { data: sectionRows, error: sectionsError } = await supabase
+        .from("evaluation_template_sections")
+        .select("id, template_id, title, module_key, display_order")
+        .in("template_id", templateIds)
+        .order("display_order", { ascending: true });
+
+      if (sectionsError) throw sectionsError;
+
+      const sectionIds = (sectionRows ?? []).map((section) => section.id as string);
+
+      if (sectionIds.length === 0) {
+        return { sections: [] };
+      }
+
+      const { data: itemRows, error: itemsError } = await supabase
+        .from("evaluation_template_items")
+        .select(`
+          id,
+          section_id,
+          label,
+          description,
+          input_type,
+          min_score,
+          max_score,
+          weight,
+          sort_order,
+          is_required,
+          is_active,
+          options_json,
+          condition
+        `)
+        .eq("is_active", true)
+        .in("section_id", sectionIds)
+        .order("sort_order", { ascending: true });
+
+      if (itemsError) throw itemsError;
 
       const itemsBySection = new Map<string, EvaluationTemplateItem[]>();
 
-      for (const rawItem of itemsResult.data ?? []) {
+      for (const rawItem of itemRows ?? []) {
         const item = rawItem as EvaluationTemplateItem;
         const existing = itemsBySection.get(item.section_id) ?? [];
         existing.push(item);
         itemsBySection.set(item.section_id, existing);
       }
 
-      const sections: EvaluationTemplateSection[] = (
-        sectionsResult.data ?? []
-      ).map((section) => ({
+      const sections: EvaluationTemplateSection[] = (sectionRows ?? []).map((section) => ({
         ...section,
         items: itemsBySection.get(section.id) ?? [],
       }));

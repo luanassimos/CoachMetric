@@ -284,15 +284,19 @@ export type CoachNoteType =
 
 export type CoachNoteSeverity = "low" | "medium" | "high";
 
-export interface CoachNote {
+
+export interface CoachActivityLog {
   id: string;
   coach_id: string;
+  studio_id: string;
   date: string;
   type: CoachNoteType;
   severity: CoachNoteSeverity;
   title: string;
   description: string;
   created_by: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export type UserRole =

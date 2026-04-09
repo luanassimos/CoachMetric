@@ -40,15 +40,51 @@ import { toggleCoachStatus } from "@/data/supabaseCoaches";
 import { fetchTrainingAttendanceByStudio } from "@/data/supabaseTraining";
 import { calculateCoachRisk } from "@/utils/risk";
 import { computeCoachMetrics } from "@/utils/metrics";
+import { buildCoachRecommendation, getScoreHealthMeta } from "@/utils/enterpriseIntelligence";
 import { getCoachName } from "@/data/helpers";
-import { coachNotes } from "@/data/coachNotes";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useCoachActivityLogs } from "@/hooks/useCoachActivityLogs";
+import {
+  createCoachActivityLog,
+  updateCoachActivityLog,
+  deleteCoachActivityLog,
+} from "@/data/supabaseCoachActivityLogs";
+import type {
+  Coach,
+  CoachNoteSeverity,
+  CoachNoteType,
+  Studio,
+  TrainingAttendance,
+} from "@/lib/types";
 import { useCoaches } from "@/hooks/useCoaches";
 import { useEvaluations } from "@/hooks/useEvaluations";
-import { useTrainingSessions } from "@/hooks/useTrainingSessions";
+import {
+  useTrainingSessions,
+  type TrainingSession,
+} from "@/hooks/useTrainingSessions";
 import { useStudios } from "@/hooks/useStudios";
 import { useStudio } from "@/contexts/StudioContext";
 
-type CoachNote = (typeof coachNotes)[number];
+type CoachTimelineNote = {
+  id: string;
+  coach_id: string;
+  date: string;
+  type: CoachNoteType;
+  severity: CoachNoteSeverity;
+  title: string;
+  description: string;
+  created_by: string;
+};
+
+type CoachTrainingRow = {
+  id: string;
+  attended: boolean;
+  notes: string;
+  session_title: string;
+  topic: string;
+  session_date: string;
+  facilitator_name: string;
+};
 
 function SurfaceCard({
   children,
@@ -88,6 +124,7 @@ function SectionHeader({
 }
 
 export default function CoachProfilePage() {
+  const queryClient = useQueryClient();
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -97,11 +134,11 @@ export default function CoachProfilePage() {
   const routeStudioId = searchParams.get("studio");
 
   useEffect(() => {
-  if (!routeStudioId || routeStudioId === "all") return;
-  if (routeStudioId !== selectedStudioId) {
-    setSelectedStudioId(routeStudioId as string | "all");
-  }
-}, [routeStudioId, selectedStudioId, setSelectedStudioId]);
+    if (!routeStudioId || routeStudioId === "all") return;
+    if (routeStudioId !== selectedStudioId) {
+      setSelectedStudioId(routeStudioId as string | "all");
+    }
+  }, [routeStudioId, selectedStudioId, setSelectedStudioId]);
 
   const { coaches, loading: coachesLoading } = useCoaches();
   const { evaluations, loading: evaluationsLoading } = useEvaluations();
@@ -112,12 +149,18 @@ export default function CoachProfilePage() {
     isLoading: trainingSessionsLoading,
   } = useTrainingSessions();
 
-  const [trainingAttendance, setTrainingAttendance] = useState<any[]>([]);
+  const [trainingAttendance, setTrainingAttendance] = useState<TrainingAttendance[]>([]);
   const [trainingAttendanceLoading, setTrainingAttendanceLoading] =
     useState(true);
 
-  const [notes, setNotes] = useState<CoachNote[]>([]);
-  const [newNote, setNewNote] = useState({
+  const [newNote, setNewNote] = useState<{
+    date: string;
+    type: CoachNoteType;
+    severity: CoachNoteSeverity;
+    title: string;
+    description: string;
+    created_by: string;
+  }>({
     date: "",
     type: "performance",
     severity: "low",
@@ -126,8 +169,11 @@ export default function CoachProfilePage() {
     created_by: "Head Coach",
   });
 
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
+
   const studioNameMap = useMemo(() => {
-    return new Map(studios.map((studio) => [studio.id, studio.name]));
+    return new Map(studios.map((studio: Studio) => [studio.id, studio.name]));
   }, [studios]);
 
   const coach = useMemo(() => {
@@ -179,17 +225,92 @@ export default function CoachProfilePage() {
     return generateDevelopmentPlan(evals);
   }, [evals]);
 
-  const initialNotes = useMemo<CoachNote[]>(() => {
-    if (!coach) return [];
+  const coachLogsStudioId = useMemo(() => {
+    if (coach?.studio_id) return coach.studio_id;
+    if (routeStudioId && routeStudioId !== "all") return routeStudioId;
+    if (selectedStudioId && selectedStudioId !== "all") return selectedStudioId;
+    return undefined;
+  }, [coach?.studio_id, routeStudioId, selectedStudioId]);
 
-    return coachNotes
-      .filter((note) => note.coach_id === coach.id)
-      .sort((a, b) => b.date.localeCompare(a.date));
-  }, [coach]);
+  const { logs, loading: logsLoading } = useCoachActivityLogs(
+    coach?.id,
+    coachLogsStudioId,
+  );
 
-  useEffect(() => {
-    setNotes(initialNotes);
-  }, [initialNotes]);
+  const notes = useMemo<CoachTimelineNote[]>(() => {
+    return logs.map((log) => ({
+      id: log.id,
+      coach_id: log.coach_id,
+      date: log.date,
+      type: log.type,
+      severity: log.severity,
+      title: log.title,
+      description: log.description,
+      created_by: log.created_by,
+    }));
+  }, [logs]);
+
+  const createLogMutation = useMutation({
+    mutationFn: createCoachActivityLog,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["coach-activity-logs", coach?.id, coachLogsStudioId],
+      });
+
+      setEditingNoteId(null);
+      setNewNote({
+        date: "",
+        type: "performance",
+        severity: "low",
+        title: "",
+        description: "",
+        created_by: "Head Coach",
+      });
+    },
+  });
+
+  const updateLogMutation = useMutation({
+    mutationFn: ({
+      id,
+      updates,
+    }: {
+      id: string;
+      updates: {
+        date: string;
+        type: CoachNoteType;
+        severity: CoachNoteSeverity;
+        title: string;
+        description: string;
+        created_by: string;
+      };
+    }) => updateCoachActivityLog(id, updates),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["coach-activity-logs", coach?.id, coachLogsStudioId],
+      });
+
+      setEditingNoteId(null);
+      setNewNote({
+        date: "",
+        type: "performance",
+        severity: "low",
+        title: "",
+        description: "",
+        created_by: "Head Coach",
+      });
+    },
+  });
+
+  const deleteLogMutation = useMutation({
+    mutationFn: deleteCoachActivityLog,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["coach-activity-logs", coach?.id, coachLogsStudioId],
+      });
+
+      setDeletingNoteId(null);
+    },
+  });
 
   const metrics = useMemo(() => {
     if (!coach) return null;
@@ -204,18 +325,20 @@ export default function CoachProfilePage() {
   const coachTrainingRows = useMemo(() => {
     if (!coach) return [];
 
-    const validSessionIds = new Set(trainingSessions.map((session: any) => session.id));
+    const validSessionIds = new Set(
+      trainingSessions.map((session: TrainingSession) => session.id),
+    );
 
     const attendanceRows = trainingAttendance.filter(
-      (row: any) =>
+      (row: TrainingAttendance) =>
         row.coach_id === coach.id &&
         validSessionIds.has(row.training_session_id),
     );
 
     return attendanceRows
-      .map((row: any) => {
+      .map((row): CoachTrainingRow | null => {
         const session = trainingSessions.find(
-          (session: any) => session.id === row.training_session_id,
+          (session: TrainingSession) => session.id === row.training_session_id,
         );
 
         if (!session) return null;
@@ -230,8 +353,8 @@ export default function CoachProfilePage() {
           facilitator_name: session.facilitator_name || "",
         };
       })
-      .filter(Boolean)
-      .sort((a: any, b: any) => b.session_date.localeCompare(a.session_date));
+      .filter((row): row is CoachTrainingRow => row !== null)
+      .sort((a, b) => b.session_date.localeCompare(a.session_date));
   }, [coach, trainingAttendance, trainingSessions]);
 
   const trendLabel = useMemo(() => {
@@ -301,73 +424,137 @@ export default function CoachProfilePage() {
     };
   }, [evals]);
 
-  const handleAddNote = () => {
-    if (!coach) return;
-    if (!newNote.date || !newNote.title || !newNote.description) return;
+  const scoreHealth = useMemo(() => {
+    return getScoreHealthMeta(metrics?.average_score ?? 0);
+  }, [metrics?.average_score]);
 
-    const noteToAdd: CoachNote = {
-      id: String(Date.now()),
-      coach_id: coach.id,
-      date: newNote.date,
-      type: newNote.type as CoachNote["type"],
-      severity: newNote.severity as CoachNote["severity"],
-      title: newNote.title,
-      description: newNote.description,
-      created_by: newNote.created_by,
-    };
+  const recommendation = useMemo(() => {
+    if (!metrics || !risk) return null;
 
-    setNotes((prev) =>
-      [noteToAdd, ...prev].sort((a, b) => b.date.localeCompare(a.date)),
-    );
-
-    setNewNote({
-      date: "",
-      type: "performance",
-      severity: "low",
-      title: "",
-      description: "",
-      created_by: "Head Coach",
+    return buildCoachRecommendation({
+      metrics,
+      risk,
+      strongestArea: sectionInsights?.strongest.label,
+      weakestArea: sectionInsights?.lowest.label,
     });
+  }, [metrics, risk, sectionInsights]);
+
+  const handleAddNote = async () => {
+    if (!coach) return;
+    if (!coachLogsStudioId) return;
+
+    if (!newNote.date || !newNote.title.trim() || !newNote.description.trim()) {
+      alert("Missing required fields");
+      return;
+    }
+
+    try {
+      if (editingNoteId) {
+        await updateLogMutation.mutateAsync({
+          id: editingNoteId,
+          updates: {
+            date: newNote.date,
+            type: newNote.type,
+            severity: newNote.severity,
+            title: newNote.title,
+            description: newNote.description,
+            created_by: newNote.created_by,
+          },
+        });
+
+        return;
+      }
+
+      await createLogMutation.mutateAsync({
+        coach_id: coach.id,
+        studio_id: coachLogsStudioId,
+        date: newNote.date,
+        type: newNote.type,
+        severity: newNote.severity,
+        title: newNote.title,
+        description: newNote.description,
+        created_by: newNote.created_by,
+      });
+    } catch (error) {
+      console.error("Failed to create/update coach activity log:", error);
+      alert(error instanceof Error ? error.message : "Failed to save note");
+    }
+  };
+
+  const handleEditNote = (note: {
+    id: string;
+    date: string;
+    type: CoachNoteType;
+    severity: CoachNoteSeverity;
+    title: string;
+    description: string;
+    created_by: string;
+  }) => {
+    setEditingNoteId(note.id);
+    setNewNote({
+      date: note.date,
+      type: note.type,
+      severity: note.severity,
+      title: note.title,
+      description: note.description,
+      created_by: note.created_by,
+    });
+  };
+
+  const handleDeleteNote = async (noteId: string) => {
+    const confirmed = window.confirm("Delete this note?");
+    if (!confirmed) return;
+
+    try {
+      setDeletingNoteId(noteId);
+      await deleteLogMutation.mutateAsync(noteId);
+    } catch (error) {
+      console.error("Failed to delete coach activity log:", error);
+      alert(error instanceof Error ? error.message : "Failed to delete note");
+      setDeletingNoteId(null);
+    }
   };
 
   async function handleToggleStatus() {
     if (!coach) return;
 
     try {
-      await toggleCoachStatus(coach.id, coach.status);
+      await toggleCoachStatus(coach.id, coach.studio_id, coach.status);
       window.location.reload();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to toggle status:", error);
-      alert(error.message || "Failed to update status");
+      alert(error instanceof Error ? error.message : "Failed to update status");
     }
   }
 
   const backToCoachesHref = useMemo(() => {
-  const params = new URLSearchParams();
+    const params = new URLSearchParams();
 
-  const resolvedStudioId =
-    routeStudioId && routeStudioId !== "all"
-      ? routeStudioId
-      : coach?.studio_id || (selectedStudioId && selectedStudioId !== "all"
-          ? selectedStudioId
-          : null);
+    const resolvedStudioId =
+      routeStudioId && routeStudioId !== "all"
+        ? routeStudioId
+        : coach?.studio_id ||
+          (selectedStudioId && selectedStudioId !== "all"
+            ? selectedStudioId
+            : null);
 
-  if (resolvedStudioId) {
-    params.set("studio", resolvedStudioId);
-  }
+    if (resolvedStudioId) {
+      params.set("studio", resolvedStudioId);
+    }
 
-  const query = params.toString();
-  return query ? `/coaches?${query}` : "/coaches";
-}, [routeStudioId, selectedStudioId, coach?.studio_id]);
+    const query = params.toString();
+    return query ? `/coaches?${query}` : "/coaches";
+  }, [routeStudioId, selectedStudioId, coach?.studio_id]);
 
   if (
-  !isReady ||
-  coachesLoading ||
-  evaluationsLoading ||
-  studiosLoading ||
-  trainingSessionsLoading ||
-  trainingAttendanceLoading
-) {
+    !isReady ||
+    coachesLoading ||
+    evaluationsLoading ||
+    studiosLoading ||
+    trainingSessionsLoading ||
+    trainingAttendanceLoading ||
+    logsLoading
+  ) {
     return (
       <div className="p-6 text-sm text-muted-foreground">Loading coach...</div>
     );
@@ -420,7 +607,8 @@ export default function CoachProfilePage() {
                 {getCoachName(coach)}
               </h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                {coach.role_title} • {studioNameMap.get(coach.studio_id) ?? "Unknown"}
+                {coach.role_title} •{" "}
+                {studioNameMap.get(coach.studio_id) ?? "Unknown"}
               </p>
 
               <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
@@ -439,7 +627,12 @@ export default function CoachProfilePage() {
 
           <div className="flex flex-col items-start gap-3 xl:items-end">
             {metrics.average_score !== null && (
-              <ScoreDisplay score={metrics.average_score} size="lg" />
+              <div className="flex flex-col items-start gap-3 xl:items-end">
+                <ScoreDisplay score={metrics.average_score} size="lg" />
+                <p className={cn("text-xs font-medium uppercase tracking-[0.14em]", scoreHealth.textClass)}>
+                  {scoreHealth.label}
+                </p>
+              </div>
             )}
 
             <div className="flex items-center gap-2">
@@ -454,18 +647,18 @@ export default function CoachProfilePage() {
 
             <div className="flex flex-wrap gap-2">
               <Button
-  variant="outline"
-  size="sm"
-  onClick={() =>
-    navigate(
-      coach.studio_id
-        ? `/coaches/${coach.id}/edit?studio=${coach.studio_id}`
-        : `/coaches/${coach.id}/edit`,
-    )
-  }
->
-  Edit Coach
-</Button>
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  navigate(
+                    coach.studio_id
+                      ? `/coaches/${coach.id}/edit?studio=${coach.studio_id}`
+                      : `/coaches/${coach.id}/edit`,
+                  )
+                }
+              >
+                Edit Coach
+              </Button>
 
               <Button
                 size="sm"
@@ -610,12 +803,12 @@ export default function CoachProfilePage() {
                       <button
                         key={ev.id}
                         onClick={() =>
-  navigate(
-    coach.studio_id
-      ? `/evaluations/${ev.id}?studio=${coach.studio_id}`
-      : `/evaluations/${ev.id}`,
-  )
-}
+                          navigate(
+                            coach.studio_id
+                              ? `/evaluations/${ev.id}?studio=${coach.studio_id}`
+                              : `/evaluations/${ev.id}`,
+                          )
+                        }
                         className="flex w-full flex-col gap-3 px-5 py-4 text-left transition-colors hover:bg-white/[0.03] sm:flex-row sm:items-center sm:justify-between"
                       >
                         <div className="min-w-0">
@@ -629,7 +822,9 @@ export default function CoachProfilePage() {
                           <span className="font-data text-sm">
                             {ev.normalized_score_percent}%
                           </span>
-                          <PerformanceBadge score={ev.normalized_score_percent} />
+                          <PerformanceBadge
+                            score={ev.normalized_score_percent}
+                          />
                         </div>
                       </button>
                     ))
@@ -639,6 +834,76 @@ export default function CoachProfilePage() {
             </div>
 
             <div className="space-y-4 xl:col-span-4">
+              {recommendation ? (
+                <SurfaceCard className="space-y-4 p-5">
+                  <div>
+                    <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/80">
+                      Management Recommendation
+                    </p>
+                    <h2 className="mt-2 text-lg font-semibold tracking-tight text-foreground">
+                      {recommendation.title}
+                    </h2>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground/85">
+                      {recommendation.summary}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-4">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/75">
+                      Why attention is needed
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-foreground/90">
+                      {recommendation.attentionReason}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3">
+                    {recommendation.weakestArea ? (
+                      <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-4">
+                        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/75">
+                          Weakest recent area
+                        </p>
+                        <p className="mt-2 text-sm font-medium text-foreground">
+                          {recommendation.weakestArea}
+                        </p>
+                      </div>
+                    ) : null}
+
+                    {recommendation.strongestArea ? (
+                      <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-4">
+                        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/75">
+                          Strongest recent area
+                        </p>
+                        <p className="mt-2 text-sm font-medium text-foreground">
+                          {recommendation.strongestArea}
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() =>
+                        navigate(
+                          coach.studio_id
+                            ? `/evaluations-v2/new?studio=${coach.studio_id}`
+                            : "/evaluations-v2/new",
+                        )
+                      }
+                    >
+                      {recommendation.actionLabel}
+                    </Button>
+                    {recommendation.confidenceNote ? (
+                      <span className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] text-muted-foreground">
+                        {recommendation.confidenceNote}
+                      </span>
+                    ) : null}
+                  </div>
+                </SurfaceCard>
+              ) : null}
+
               {coach.onboarding && (
                 <section>
                   <SurfaceCard className="space-y-3 p-5">
@@ -688,12 +953,12 @@ export default function CoachProfilePage() {
                     <TableRow
                       key={ev.id}
                       onClick={() =>
-  navigate(
-    coach.studio_id
-      ? `/evaluations/${ev.id}?studio=${coach.studio_id}`
-      : `/evaluations/${ev.id}`,
-  )
-}
+                        navigate(
+                          coach.studio_id
+                            ? `/evaluations/${ev.id}?studio=${coach.studio_id}`
+                            : `/evaluations/${ev.id}`,
+                        )
+                      }
                       className="cursor-pointer"
                     >
                       <TableCell className="px-5 py-3 text-sm">
@@ -709,7 +974,9 @@ export default function CoachProfilePage() {
                         {ev.normalized_score_percent}%
                       </TableCell>
                       <TableCell className="px-5 py-3">
-                        <PerformanceBadge score={ev.normalized_score_percent} />
+                        <PerformanceBadge
+                          score={ev.normalized_score_percent}
+                        />
                       </TableCell>
                     </TableRow>
                   ))
@@ -808,7 +1075,7 @@ export default function CoachProfilePage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  coachTrainingRows.map((row: any) => (
+                  coachTrainingRows.map((row) => (
                     <TableRow key={row.id}>
                       <TableCell className="px-5 py-3 text-sm font-medium">
                         {row.session_title}
@@ -845,7 +1112,12 @@ export default function CoachProfilePage() {
         </TabsContent>
 
         <TabsContent value="notes">
-          <CoachNotesTimeline notes={notes} />
+          <CoachNotesTimeline
+            notes={notes}
+            onEdit={handleEditNote}
+            onDelete={handleDeleteNote}
+            deletingId={deletingNoteId}
+          />
 
           <SurfaceCard className="mt-4 space-y-4 p-5">
             <SectionHeader
@@ -874,7 +1146,10 @@ export default function CoachProfilePage() {
               <Select
                 value={newNote.type}
                 onValueChange={(value) =>
-                  setNewNote((prev) => ({ ...prev, type: value }))
+                  setNewNote((prev) => ({
+                    ...prev,
+                    type: value as CoachNoteType,
+                  }))
                 }
               >
                 <SelectTrigger>
@@ -896,7 +1171,10 @@ export default function CoachProfilePage() {
               <Select
                 value={newNote.severity}
                 onValueChange={(value) =>
-                  setNewNote((prev) => ({ ...prev, severity: value }))
+                  setNewNote((prev) => ({
+                    ...prev,
+                    severity: value as CoachNoteSeverity,
+                  }))
                 }
               >
                 <SelectTrigger>
@@ -922,8 +1200,38 @@ export default function CoachProfilePage() {
               className="min-h-[120px]"
             />
 
-            <div className="flex justify-end">
-              <Button onClick={handleAddNote}>Add Note</Button>
+            <div className="flex justify-end gap-2">
+              {editingNoteId ? (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setEditingNoteId(null);
+                    setNewNote({
+                      date: "",
+                      type: "performance",
+                      severity: "low",
+                      title: "",
+                      description: "",
+                      created_by: "Head Coach",
+                    });
+                  }}
+                >
+                  Cancel
+                </Button>
+              ) : null}
+
+              <Button
+                onClick={handleAddNote}
+                disabled={
+                  createLogMutation.isPending || updateLogMutation.isPending
+                }
+              >
+                {createLogMutation.isPending || updateLogMutation.isPending
+                  ? "Saving..."
+                  : editingNoteId
+                    ? "Save Changes"
+                    : "Add Note"}
+              </Button>
             </div>
           </SurfaceCard>
         </TabsContent>

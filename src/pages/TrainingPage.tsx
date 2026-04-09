@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, CalendarDays, GraduationCap, Trash2, Building2 } from "lucide-react";
+import {
+  Plus,
+  CalendarDays,
+  GraduationCap,
+  Trash2,
+  Building2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   useCreateTrainingSession,
@@ -10,7 +16,7 @@ import { useStudio } from "@/contexts/StudioContext";
 import { useStudios } from "@/hooks/useStudios";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { deleteTrainingSession } from "../data/supabaseTraining";
+import { deleteTrainingSession } from "@/data/supabaseTraining";
 import {
   Dialog,
   DialogContent,
@@ -28,6 +34,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useQueryClient } from "@tanstack/react-query";
+import type { Studio } from "@/lib/types";
+import type { TrainingSession } from "@/hooks/useTrainingSessions";
 
 function SurfaceCard({
   children,
@@ -81,7 +89,8 @@ export default function TrainingPage() {
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { selectedStudioId, selectedStudio, isAllStudios, isReady } = useStudio();
+  const { selectedStudioId, selectedStudio, isAllStudios, isReady } =
+    useStudio();
   const { studios } = useStudios();
 
   const { data: trainingSessions = [], isLoading } = useTrainingSessions();
@@ -96,36 +105,38 @@ export default function TrainingPage() {
   const [sessionSaving, setSessionSaving] = useState(false);
 
   const studioNameMap = useMemo(() => {
-    return new Map(studios.map((studio) => [studio.id, studio.name]));
+    return new Map(studios.map((studio: Studio) => [studio.id, studio.name]));
   }, [studios]);
 
   const selectedSessionRecord = useMemo(
     () =>
-      trainingSessions.find((session: any) => session.id === selectedSession) ??
+      trainingSessions.find((session: TrainingSession) => session.id === selectedSession) ??
       null,
     [trainingSessions, selectedSession],
   );
+
   useEffect(() => {
-  if (!selectedSession && trainingSessions.length > 0) {
-    setSelectedSession(trainingSessions[0].id);
-    useEffect(() => {
-  if (!selectedSession) return;
+    if (trainingSessions.length === 0) {
+      if (selectedSession !== null) {
+        setSelectedSession(null);
+      }
+      return;
+    }
 
-  const exists = trainingSessions.some(
-    (session: any) => session.id === selectedSession,
-  );
+    if (!selectedSession) {
+      setSelectedSession(trainingSessions[0].id);
+      return;
+    }
 
-  if (!exists) {
-    setSelectedSession(trainingSessions[0]?.id ?? null);
-  }
-}, [selectedSession, trainingSessions]);
-  }
-}, [selectedSession, trainingSessions]);
-useMemo(() => {
-  if (!selectedSession && trainingSessions.length > 0) {
-    setSelectedSession(trainingSessions[0].id);
-  }
-}, [selectedSession, trainingSessions]);
+    const exists = trainingSessions.some(
+      (session: TrainingSession) => session.id === selectedSession,
+    );
+
+    if (!exists) {
+      setSelectedSession(trainingSessions[0]?.id ?? null);
+    }
+  }, [selectedSession, trainingSessions]);
+
   async function handleCreateSession() {
     if (!sessionTitle.trim() || !sessionDate || !selectedStudioId || isAllStudios) {
       return;
@@ -148,9 +159,13 @@ useMemo(() => {
       setFacilitatorName("");
       setSessionNotes("");
       setSessionOpen(false);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("FULL ERROR:", error);
-      alert(error.message || "Failed to create training session.");
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Failed to create training session.",
+      );
     } finally {
       setSessionSaving(false);
     }
@@ -162,38 +177,47 @@ useMemo(() => {
 
     try {
       await deleteTrainingSession(id);
+
       await queryClient.invalidateQueries({
-  queryKey: ["training_sessions", selectedStudioId === "all" ? "all" : selectedStudioId],
-});
-await queryClient.invalidateQueries({
-  queryKey: ["training_sessions", "all"],
-});
+        queryKey: [
+          "training_sessions",
+          selectedStudioId === "all" ? "all" : selectedStudioId,
+        ],
+      });
+
+      await queryClient.invalidateQueries({
+        queryKey: ["training_sessions", "all"],
+      });
 
       if (selectedSession === id) {
         setSelectedSession(null);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("FULL DELETE ERROR:", error);
-      alert(error.message || "Failed to delete session.");
+      alert(
+        error instanceof Error ? error.message : "Failed to delete session.",
+      );
     }
   }
 
   const summary = useMemo(() => {
     return {
       total: trainingSessions.length,
-      withTopic: trainingSessions.filter((session: any) => !!session.topic?.trim())
+      withTopic: trainingSessions.filter((session: TrainingSession) => !!session.topic?.trim())
         .length,
       withFacilitator: trainingSessions.filter(
-        (session: any) => !!session.facilitator_name?.trim(),
+        (session: TrainingSession) => !!session.facilitator_name?.trim(),
       ).length,
     };
   }, [trainingSessions]);
 
   if (!isReady || isLoading) {
-  return (
-    <div className="p-6 text-sm text-muted-foreground">Loading training...</div>
-  );
-}
+    return (
+      <div className="p-6 text-sm text-muted-foreground">
+        Loading training...
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -212,7 +236,10 @@ await queryClient.invalidateQueries({
                 : "Manage internal training sessions, session details, and attendance workflows for your coaching team."}
             </p>
             <p className="mt-3 text-xs text-muted-foreground">
-              Current scope: {isAllStudios ? "All Studios" : selectedStudio?.name || "No studio selected"}
+              Current scope:{" "}
+              {isAllStudios
+                ? "All Studios"
+                : selectedStudio?.name || "No studio selected"}
             </p>
           </div>
 
@@ -385,7 +412,7 @@ await queryClient.invalidateQueries({
               </div>
             ) : (
               <div className="divide-y divide-white/8">
-                {trainingSessions.map((session: any) => {
+                {trainingSessions.map((session: TrainingSession) => {
                   const active = selectedSession === session.id;
 
                   return (
@@ -442,12 +469,12 @@ await queryClient.invalidateQueries({
                         variant="outline"
                         type="button"
                         onClick={() =>
-  navigate(
-    selectedSessionRecord.studio_id
-      ? `/training/${selectedSessionRecord.id}/edit?studio=${selectedSessionRecord.studio_id}`
-      : `/training/${selectedSessionRecord.id}/edit`,
-  )
-}
+                          navigate(
+                            selectedSessionRecord.studio_id
+                              ? `/training/${selectedSessionRecord.id}/edit?studio=${selectedSessionRecord.studio_id}`
+                              : `/training/${selectedSessionRecord.id}/edit`,
+                          )
+                        }
                       >
                         Edit
                       </Button>
@@ -486,11 +513,10 @@ await queryClient.invalidateQueries({
                   icon={<Building2 className="h-4 w-4" />}
                   label="Studio"
                   value={
-  studioNameMap.get(selectedSessionRecord.studio_id) ??
-  selectedSessionRecord.studio_id ??
-  "—"
-}
-                  
+                    studioNameMap.get(selectedSessionRecord.studio_id) ??
+                    selectedSessionRecord.studio_id ??
+                    "—"
+                  }
                 />
               </div>
 

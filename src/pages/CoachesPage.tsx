@@ -163,18 +163,8 @@ export default function CoachesPage() {
   selectedStudioId,
   selectedStudio,
   isAllStudios,
-  setSelectedStudioId,
   isReady,
 } = useStudio();
-
-  const routeStudioId = searchParams.get("studio");
-
-  useEffect(() => {
-    if (!routeStudioId) return;
-    if (routeStudioId !== selectedStudioId) {
-      setSelectedStudioId(routeStudioId as string | "all");
-    }
-  }, [routeStudioId, selectedStudioId, setSelectedStudioId]);
 
   const {
     coaches,
@@ -279,22 +269,14 @@ const trendFilter = searchParams.get("trend");
     );
   }, [evaluationFilteredCoaches, onboardingFilter]);
 
-  const evaluationScopedCoachIds = useMemo(() => {
-  return new Set(evaluationFilteredCoaches.map((coach) => coach.id));
-}, [evaluationFilteredCoaches]);
-
-const evaluationScopedEvaluations = useMemo(() => {
-  return evaluations.filter((evaluation) =>
-    evaluationScopedCoachIds.has(evaluation.coach_id),
-  );
-}, [evaluations, evaluationScopedCoachIds]);
+  
 
 const metricsMap = useMemo(() => {
   return computeAllCoachMetrics(
-    evaluationFilteredCoaches,
-    evaluationScopedEvaluations,
+    studioScopedCoaches,
+    evaluations,
   );
-}, [evaluationFilteredCoaches, evaluationScopedEvaluations]);
+}, [studioScopedCoaches, evaluations]);
 
 const riskAndTrendFilteredCoaches = useMemo(() => {
   return finalFilteredCoaches.filter((coach) => {
@@ -385,10 +367,16 @@ const summary = useMemo(() => {
 
           <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
             <Button
-              size="sm"
-              onClick={() => navigate("/coaches/new")}
-              className="w-full sm:w-auto"
-            >
+  size="sm"
+  onClick={() =>
+    navigate(
+      selectedStudioId && selectedStudioId !== "all"
+        ? `/coaches/new?studio=${selectedStudioId}`
+        : "/coaches/new",
+    )
+  }
+  className="w-full sm:w-auto"
+>
               <Plus className="mr-1.5 h-4 w-4" />
               Add Coach
             </Button>
@@ -568,39 +556,74 @@ const summary = useMemo(() => {
             </div>
 
             <div>
-              <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground/80">
-                Onboarding
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <FilterChip
-                  active={onboardingFilter === "all"}
-                  onClick={() => updateSearchParam("onboarding", "all", true)}
-                >
-                  All Onboarding
-                </FilterChip>
+  <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground/80">
+    Risk
+  </p>
+  <div className="flex flex-wrap gap-2">
+    <FilterChip
+      active={!riskFilter}
+      onClick={() => updateSearchParam("risk", "all", true)}
+    >
+      All Risk
+    </FilterChip>
 
-                <FilterChip
-                  active={onboardingFilter === "incomplete"}
-                  onClick={() => updateSearchParam("onboarding", "incomplete")}
-                >
-                  Incomplete
-                </FilterChip>
+    <FilterChip
+      active={riskFilter === "high"}
+      onClick={() => updateSearchParam("risk", "high")}
+    >
+      High
+    </FilterChip>
 
-                <FilterChip
-                  active={onboardingFilter === "completed"}
-                  onClick={() => updateSearchParam("onboarding", "completed")}
-                >
-                  Ready
-                </FilterChip>
+    <FilterChip
+      active={riskFilter === "moderate"}
+      onClick={() => updateSearchParam("risk", "moderate")}
+    >
+      Moderate
+    </FilterChip>
 
-                <FilterChip
-                  active={onboardingFilter === "not_started"}
-                  onClick={() => updateSearchParam("onboarding", "not_started")}
-                >
-                  Not Started
-                </FilterChip>
-              </div>
-            </div>
+    <FilterChip
+      active={riskFilter === "low"}
+      onClick={() => updateSearchParam("risk", "low")}
+    >
+      Low
+    </FilterChip>
+  </div>
+</div>
+
+<div>
+  <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground/80">
+    Trend
+  </p>
+  <div className="flex flex-wrap gap-2">
+    <FilterChip
+      active={!trendFilter}
+      onClick={() => updateSearchParam("trend", "all", true)}
+    >
+      All Trend
+    </FilterChip>
+
+    <FilterChip
+      active={trendFilter === "improving"}
+      onClick={() => updateSearchParam("trend", "improving")}
+    >
+      Improving
+    </FilterChip>
+
+    <FilterChip
+      active={trendFilter === "declining"}
+      onClick={() => updateSearchParam("trend", "declining")}
+    >
+      Declining
+    </FilterChip>
+
+    <FilterChip
+      active={trendFilter === "stable"}
+      onClick={() => updateSearchParam("trend", "stable")}
+    >
+      Stable
+    </FilterChip>
+  </div>
+</div>
           </div>
         )}
       </SurfaceCard>
@@ -648,9 +671,9 @@ const summary = useMemo(() => {
                     key={coach.id}
                     onClick={() =>
                       navigate(
-  isAllStudios
-    ? `/coaches/${coach.id}`
-    : `/coaches/${coach.id}?studio=${coach.studio_id}`,
+  selectedStudioId && selectedStudioId !== "all"
+  ? `/coaches/${coach.id}?studio=${selectedStudioId}`
+  : `/coaches/${coach.id}`
 )
                     }
                     className="cursor-pointer"

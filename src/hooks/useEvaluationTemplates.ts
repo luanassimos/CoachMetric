@@ -2,6 +2,17 @@ import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 
+type TemplateItemRow = {
+  id: string;
+  section_id: string;
+  label?: string | null;
+  input_type?: string | null;
+  options_json?: unknown[] | null;
+  min_score?: number | null;
+  max_score?: number | null;
+  sort_order?: number | null;
+};
+
 export type EvaluationTemplateListItem = {
   id: string;
   studio_id: string;
@@ -127,11 +138,20 @@ export function useEvaluationTemplates(params?: UseEvaluationTemplatesParams) {
       if (sectionIds.length > 0) {
         const { data: items, error: itemsError } = await supabase
           .from("evaluation_template_items")
-          .select("id, section_id")
+.select(`
+  id,
+  section_id,
+  label,
+  input_type,
+  options_json,
+  min_score,
+  max_score,
+  sort_order
+`)
           .in("section_id", sectionIds);
 
         if (itemsError) throw itemsError;
-        safeItems = items ?? [];
+        safeItems = (items ?? []) as TemplateItemRow[];
       }
 
       const studioNameById = new Map<string, string>();
@@ -243,7 +263,13 @@ export function useEvaluationTemplates(params?: UseEvaluationTemplatesParams) {
   });
 
   const deleteTemplateMutation = useMutation({
-    mutationFn: async (templateId: string) => {
+    mutationFn: async ({
+      templateId,
+      templateStudioId,
+    }: {
+      templateId: string;
+      templateStudioId: string;
+    }) => {
       const { data: sections, error: sectionsError } = await supabase
         .from("evaluation_template_sections")
         .select("id")
@@ -272,7 +298,8 @@ export function useEvaluationTemplates(params?: UseEvaluationTemplatesParams) {
       const { error: templateDeleteError } = await supabase
         .from("evaluation_templates")
         .delete()
-        .eq("id", templateId);
+        .eq("id", templateId)
+        .eq("studio_id", templateStudioId);
 
       if (templateDeleteError) throw templateDeleteError;
     },

@@ -6,9 +6,10 @@ export function useGlobalDashboard() {
   const { selectedStudioId } = useStudio();
 
   return useQuery({
-    queryKey: ["global-dashboard"],
+    queryKey: ["global-dashboard", selectedStudioId],
     queryFn: getGlobalDashboardData,
     enabled: selectedStudioId === "all",
     staleTime: 30_000,
+    refetchOnWindowFocus: false,
   });
 }

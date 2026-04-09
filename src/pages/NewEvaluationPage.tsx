@@ -8,6 +8,8 @@ import { createEvaluation } from "@/data/supabaseEvaluations";
 import {
   getActiveEvaluationTemplateForStudio,
   getNormalizedEvaluationTemplatesByStudio,
+  type NormalizedEvaluationTemplateItem,
+  type NormalizedEvaluationTemplateSection,
   type NormalizedEvaluationTemplate,
 } from "@/data/supabaseEvaluationTemplates";
 import { getCoachName } from "@/data/helpers";
@@ -24,6 +26,33 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+
+type TemplateSnapshot = {
+  id: string;
+  name: string;
+  version: number;
+  sections: Array<{
+    id?: string;
+    title: string;
+    module_key: string;
+    display_order: number;
+    items: Array<{
+      id?: string;
+      section_id?: string;
+      label: string;
+      description: string | null;
+      input_type: "score" | "select" | "boolean" | "text";
+      min_score: number | null;
+      max_score: number | null;
+      weight: number;
+      sort_order: number;
+      is_required: boolean;
+      is_active: boolean;
+      options_json: NormalizedEvaluationTemplateItem["options_json"];
+      condition: string | null;
+    }>;
+  }>;
+};
 
 function SurfaceCard({
   children,
@@ -44,21 +73,21 @@ function SurfaceCard({
   );
 }
 
-function buildTemplateSnapshot(template: NormalizedEvaluationTemplate) {
-  const safeTemplate = template as any;
-
+function buildTemplateSnapshot(
+  template: NormalizedEvaluationTemplate,
+): TemplateSnapshot {
   return {
-    id: safeTemplate.id,
-    name: safeTemplate.name ?? "Unnamed Template",
-    version: safeTemplate.version ?? 1,
-    sections: (safeTemplate.sections ?? [])
+    id: template.id,
+    name: template.name ?? "Unnamed Template",
+    version: template.version ?? 1,
+    sections: (template.sections ?? [])
       .slice()
       .sort(
-        (a: any, b: any) =>
+        (a: NormalizedEvaluationTemplateSection, b: NormalizedEvaluationTemplateSection) =>
           Number(a.display_order ?? a.sort_order ?? 0) -
           Number(b.display_order ?? b.sort_order ?? 0),
       )
-      .map((section: any) => ({
+      .map((section) => ({
         id: section.id,
         title: section.title ?? section.name ?? "Section",
         module_key:
@@ -72,11 +101,11 @@ function buildTemplateSnapshot(template: NormalizedEvaluationTemplate) {
         items: (section.items ?? [])
           .slice()
           .sort(
-            (a: any, b: any) =>
+            (a: NormalizedEvaluationTemplateItem, b: NormalizedEvaluationTemplateItem) =>
               Number(a.sort_order ?? a.display_order ?? 0) -
               Number(b.sort_order ?? b.display_order ?? 0),
           )
-          .map((item: any) => ({
+          .map((item) => ({
             id: item.id,
             section_id: item.section_id ?? section.id,
             label: item.label ?? item.title ?? "Item",
@@ -89,7 +118,12 @@ function buildTemplateSnapshot(template: NormalizedEvaluationTemplate) {
             is_required: Boolean(item.is_required ?? item.required),
             is_active:
               item.is_active === undefined ? true : Boolean(item.is_active),
-            options_json: item.options_json ?? item.options ?? null,
+            options_json:
+  Array.isArray(item.options_json) && item.options_json.length > 0
+    ? item.options_json
+    : Array.isArray(item.options) && item.options.length > 0
+    ? item.options
+    : null,
             condition:
               typeof item.condition === "string" ? item.condition : null,
           })),
@@ -140,11 +174,10 @@ export default function NewEvaluationPage() {
       return { sections: 0, items: 0 };
     }
 
-    const safeTemplate = selectedTemplate as any;
-    const sections = safeTemplate.sections?.length || 0;
+    const sections = selectedTemplate.sections?.length || 0;
 
     const items =
-      safeTemplate.sections?.reduce((total: number, section: any) => {
+      selectedTemplate.sections?.reduce((total, section) => {
         return total + (section.items?.length || 0);
       }, 0) || 0;
 
@@ -163,7 +196,7 @@ export default function NewEvaluationPage() {
     });
   }, [availableTemplates, templateSearch]);
 
-  const shouldUseDynamic = !!(selectedTemplate as any)?.sections?.length;
+  const shouldUseDynamic = (selectedTemplate?.sections?.length ?? 0) > 0;
 
   useEffect(() => {
     async function load() {
@@ -234,7 +267,7 @@ export default function NewEvaluationPage() {
 
       setCreating(true);
 
-      if (!(selectedTemplate as any).sections?.length) {
+      if ((selectedTemplate.sections?.length ?? 0) === 0) {
         toast.error("Selected template has no sections");
         return;
       }
@@ -275,7 +308,9 @@ export default function NewEvaluationPage() {
       }
 
       toast.success("Evaluation created");
-      navigate(`/evaluations-v2/${createdEvaluation.id}`);
+      navigate(
+        `/evaluations-v2/${createdEvaluation.id}?studio=${createdEvaluation.studio_id}`,
+      );
     } catch (err) {
       console.error(err);
       toast.error("Failed to start evaluation");

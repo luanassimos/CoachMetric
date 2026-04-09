@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { nanoid } from "nanoid";
 import { toast } from "sonner";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { LayoutTemplate, ArrowRight, PencilLine } from "lucide-react";
+import { LayoutTemplate, ArrowRight, PencilLine, ArrowLeft } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
 import { useStudio } from "@/contexts/StudioContext";
@@ -11,6 +11,8 @@ import { ensureStudioDefaultTemplate } from "@/data/supabaseStudios";
 import {
   getActiveEvaluationTemplateForStudio,
   getNormalizedEvaluationTemplatesByStudio,
+  type NormalizedEvaluationTemplateItem,
+  type NormalizedEvaluationTemplateSection,
   type NormalizedEvaluationTemplate,
 } from "@/data/supabaseEvaluationTemplates";
 import { Button } from "@/components/ui/button";
@@ -67,21 +69,48 @@ function getStorageKey(studioId?: string | null) {
   return `evaluation-v2-start:${studioId ?? "unknown"}`;
 }
 
-function buildTemplateSnapshot(template: NormalizedEvaluationTemplate) {
-  const safeTemplate = template as any;
+type TemplateSnapshot = {
+  id: string;
+  name: string;
+  version: number;
+  sections: Array<{
+    id?: string;
+    title: string;
+    module_key: string;
+    display_order: number;
+    items: Array<{
+      id?: string;
+      section_id?: string;
+      label: string;
+      description: string | null;
+      input_type: "score" | "select" | "boolean" | "text";
+      min_score: number | null;
+      max_score: number | null;
+      weight: number;
+      sort_order: number;
+      is_required: boolean;
+      is_active: boolean;
+      options_json: NormalizedEvaluationTemplateItem["options_json"];
+      condition: string | null;
+    }>;
+  }>;
+};
 
+function buildTemplateSnapshot(
+  template: NormalizedEvaluationTemplate,
+): TemplateSnapshot {
   return {
-    id: safeTemplate.id,
-    name: safeTemplate.name ?? "Unnamed Template",
-    version: safeTemplate.version ?? 1,
-    sections: (safeTemplate.sections ?? [])
+    id: template.id,
+    name: template.name ?? "Unnamed Template",
+    version: template.version ?? 1,
+    sections: (template.sections ?? [])
       .slice()
       .sort(
-        (a: any, b: any) =>
+        (a: NormalizedEvaluationTemplateSection, b: NormalizedEvaluationTemplateSection) =>
           Number(a.display_order ?? a.sort_order ?? 0) -
           Number(b.display_order ?? b.sort_order ?? 0),
       )
-      .map((section: any) => ({
+      .map((section) => ({
         id: section.id,
         title: section.title ?? section.name ?? "Section",
         module_key:
@@ -95,11 +124,11 @@ function buildTemplateSnapshot(template: NormalizedEvaluationTemplate) {
         items: (section.items ?? [])
           .slice()
           .sort(
-            (a: any, b: any) =>
+            (a: NormalizedEvaluationTemplateItem, b: NormalizedEvaluationTemplateItem) =>
               Number(a.sort_order ?? a.display_order ?? 0) -
               Number(b.sort_order ?? b.display_order ?? 0),
           )
-          .map((item: any) => ({
+          .map((item) => ({
             id: item.id,
             section_id: item.section_id ?? section.id,
             label: item.label ?? item.title ?? "Item",
@@ -125,24 +154,24 @@ export default function EvaluationV2StartPage() {
   const { selectedStudioId, selectedStudio, isAllStudios, isReady } = useStudio();
 
   const [coachId, setCoachId] = useState("");
-const [evaluatorName, setEvaluatorName] = useState("");
-const [classDate, setClassDate] = useState(toLocalDateInputValue());
-const [classTime, setClassTime] = useState(() => {
-  const now = new Date();
-  return now.toTimeString().slice(0, 5);
-});
-const [classType, setClassType] = useState("");
-const [coachRole, setCoachRole] = useState("lead");
-const [shiftType, setShiftType] = useState(() => {
-  const hour = new Date().getHours();
+  const [evaluatorName, setEvaluatorName] = useState("");
+  const [classDate, setClassDate] = useState(toLocalDateInputValue());
+  const [classTime, setClassTime] = useState(() => {
+    const now = new Date();
+    return now.toTimeString().slice(0, 5);
+  });
+  const [classType, setClassType] = useState("");
+  const [coachRole, setCoachRole] = useState("lead");
+  const [shiftType, setShiftType] = useState(() => {
+    const hour = new Date().getHours();
 
-  if (hour < 11) return "am";
-  if (hour < 15) return "midday";
-  if (hour < 20) return "pm";
-  return "weekend";
-});
-const [greenStarPresent, setGreenStarPresent] = useState("no");
-const [selectedTemplateId, setSelectedTemplateId] = useState("");
+    if (hour < 11) return "am";
+    if (hour < 15) return "midday";
+    if (hour < 20) return "pm";
+    return "weekend";
+  });
+  const [greenStarPresent, setGreenStarPresent] = useState("no");
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
 
   useEffect(() => {
     const raw = sessionStorage.getItem(getStorageKey(selectedStudioId));
@@ -163,30 +192,32 @@ const [selectedTemplateId, setSelectedTemplateId] = useState("");
       console.error("Failed to restore Evaluation V2 start draft", error);
     }
   }, [selectedStudioId]);
-useEffect(() => {
-  const raw = localStorage.getItem("evaluation-v2-defaults");
-  if (!raw) return;
 
-  try {
-    const parsed = JSON.parse(raw);
+  useEffect(() => {
+    const raw = localStorage.getItem("evaluation-v2-defaults");
+    if (!raw) return;
 
-    setClassType((current) => current || parsed.classType || "");
-    setCoachRole((current) => current || parsed.coachRole || "lead");
-    setShiftType((current) => current || parsed.shiftType || "am");
-  } catch (error) {
-    console.error("Failed to restore Evaluation V2 defaults", error);
-  }
-}, []);
-useEffect(() => {
-  localStorage.setItem(
-    "evaluation-v2-defaults",
-    JSON.stringify({
-      classType,
-      coachRole,
-      shiftType,
-    }),
-  );
-}, [classType, coachRole, shiftType]);
+    try {
+      const parsed = JSON.parse(raw);
+      setClassType((current) => current || parsed.classType || "");
+      setCoachRole((current) => current || parsed.coachRole || "lead");
+      setShiftType((current) => current || parsed.shiftType || "am");
+    } catch (error) {
+      console.error("Failed to restore Evaluation V2 defaults", error);
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(
+      "evaluation-v2-defaults",
+      JSON.stringify({
+        classType,
+        coachRole,
+        shiftType,
+      }),
+    );
+  }, [classType, coachRole, shiftType]);
+
   useEffect(() => {
     sessionStorage.setItem(
       getStorageKey(selectedStudioId),
@@ -214,76 +245,82 @@ useEffect(() => {
     greenStarPresent,
     selectedTemplateId,
   ]);
-useEffect(() => {
-  const savedEvaluatorName = localStorage.getItem("evaluation-v2-evaluator-name");
-  if (savedEvaluatorName) {
-    setEvaluatorName((current) => current || savedEvaluatorName);
-  }
-}, []);
-useEffect(() => {
-  if (!evaluatorName.trim()) return;
-  localStorage.setItem("evaluation-v2-evaluator-name", evaluatorName.trim());
-}, [evaluatorName]);
+
+  useEffect(() => {
+    const savedEvaluatorName = localStorage.getItem("evaluation-v2-evaluator-name");
+    if (savedEvaluatorName) {
+      setEvaluatorName((current) => current || savedEvaluatorName);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!evaluatorName.trim()) return;
+    localStorage.setItem("evaluation-v2-evaluator-name", evaluatorName.trim());
+  }, [evaluatorName]);
+
   const coachesQuery = useQuery({
-  enabled: isReady && Boolean(selectedStudioId) && !isAllStudios,
-  queryKey: ["evaluation-v2-coaches", selectedStudioId],
-  queryFn: async () => {
-    if (!selectedStudioId || selectedStudioId === "all") {
-      return [] as CoachRow[];
-    }
-
-    const { data, error } = await supabase
-      .from("coaches")
-      .select("*")
-      .eq("studio_id", selectedStudioId);
-
-    if (error) throw error;
-    return (data ?? []) as CoachRow[];
-  },
-});
-
- const templatesQuery = useQuery({
-  enabled: isReady && Boolean(selectedStudioId) && !isAllStudios,
-  queryKey: ["evaluation-v2-start-templates", selectedStudioId],
-  queryFn: async () => {
-    if (!selectedStudioId || selectedStudioId === "all") {
-      return { active: null, all: [] as NormalizedEvaluationTemplate[] };
-    }
-
-    try {
-      const [active, all] = await Promise.all([
-        getActiveEvaluationTemplateForStudio(selectedStudioId),
-        getNormalizedEvaluationTemplatesByStudio(selectedStudioId),
-      ]);
-
-      if ((all ?? []).length > 0) {
-        return {
-          active,
-          all: all ?? [],
-        };
+    enabled: isReady && Boolean(selectedStudioId) && !isAllStudios,
+    queryKey: ["evaluation-v2-coaches", selectedStudioId],
+    queryFn: async () => {
+      if (!selectedStudioId || selectedStudioId === "all") {
+        return [] as CoachRow[];
       }
 
-      await ensureStudioDefaultTemplate(selectedStudioId);
+      const { data, error } = await supabase
+        .from("coaches")
+        .select("*")
+        .eq("studio_id", selectedStudioId);
 
-      const [retryActive, retryAll] = await Promise.all([
-        getActiveEvaluationTemplateForStudio(selectedStudioId),
-        getNormalizedEvaluationTemplatesByStudio(selectedStudioId),
-      ]);
+      if (error) throw error;
+      return (data ?? []) as CoachRow[];
+    },
+  });
 
-      return {
-        active: retryActive,
-        all: retryAll ?? [],
-      };
-    } catch (error) {
-      console.error("templatesQuery error", error);
-      throw error;
-    }
-  },
-  retry: false,
-});
+  const templatesQuery = useQuery({
+    enabled: isReady && Boolean(selectedStudioId) && !isAllStudios,
+    queryKey: ["evaluation-v2-start-templates", selectedStudioId],
+    queryFn: async () => {
+      if (!selectedStudioId || selectedStudioId === "all") {
+        return { active: null, all: [] as NormalizedEvaluationTemplate[] };
+      }
+
+      try {
+        const [active, all] = await Promise.all([
+          getActiveEvaluationTemplateForStudio(selectedStudioId),
+          getNormalizedEvaluationTemplatesByStudio(selectedStudioId),
+        ]);
+
+        if ((all ?? []).length > 0) {
+          return {
+            active,
+            all: all ?? [],
+          };
+        }
+
+        await ensureStudioDefaultTemplate(selectedStudioId);
+
+        const [retryActive, retryAll] = await Promise.all([
+          getActiveEvaluationTemplateForStudio(selectedStudioId),
+          getNormalizedEvaluationTemplatesByStudio(selectedStudioId),
+        ]);
+
+        return {
+          active: retryActive,
+          all: retryAll ?? [],
+        };
+      } catch (error) {
+        console.error("templatesQuery error", error);
+        throw error;
+      }
+    },
+    retry: false,
+  });
 
   const activeTemplate = templatesQuery.data?.active ?? null;
-  const allTemplates = templatesQuery.data?.all ?? [];
+  const allTemplates = useMemo(
+    () => templatesQuery.data?.all ?? [],
+    [templatesQuery.data?.all],
+  );
 
   useEffect(() => {
     if (allTemplates.length === 0) {
@@ -320,14 +357,14 @@ useEffect(() => {
   const createMutation = useMutation({
     mutationFn: async () => {
       if (!selectedStudioId || selectedStudioId === "all") {
-  throw new Error("Select one studio before creating an evaluation");
-}
+        throw new Error("Select one studio before creating an evaluation");
+      }
 
       if (!selectedTemplate?.id) {
         throw new Error("Template is required");
       }
 
-      if (!(selectedTemplate as any)?.sections?.length) {
+      if ((selectedTemplate.sections?.length ?? 0) === 0) {
         throw new Error("Selected template has no sections");
       }
 
@@ -353,6 +390,22 @@ useEffect(() => {
 
       const evaluationId = nanoid();
       const templateSnapshot = buildTemplateSnapshot(selectedTemplate);
+
+      console.log("Creating evaluation with", {
+        studioId: selectedStudioId,
+        evaluatorName,
+        classDate,
+        classTime,
+        classType,
+        templateId: selectedTemplate.id,
+        sectionCount: templateSnapshot.sections?.length ?? 0,
+        itemCount:
+          templateSnapshot.sections?.reduce(
+            (total, section) =>
+              total + (section.items?.length ?? 0),
+            0,
+          ) ?? 0,
+      });
 
       const { error } = await supabase.from("evaluations").insert({
         id: evaluationId,
@@ -388,38 +441,55 @@ useEffect(() => {
     onSuccess: (id) => {
       sessionStorage.removeItem(getStorageKey(selectedStudioId));
       toast.success("Evaluation created");
-      navigate(`/evaluations-v2/${id}`);
+      navigate(`/evaluations-v2/${id}?studio=${selectedStudioId}`);
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       console.error(err);
-      toast.error(err?.message ?? "Failed to create evaluation");
+      toast.error(
+        err instanceof Error ? err.message : "Failed to create evaluation",
+      );
     },
   });
 
   const hasTemplates = allTemplates.length > 0;
   const startValidation = {
-  hasStudio: Boolean(selectedStudioId && selectedStudioId !== "all"),
-  singleStudioScope: !isAllStudios,
-  hasTemplate: Boolean(selectedTemplate?.id),
-  hasCoach: Boolean(coachId),
-  hasEvaluatorName: Boolean(evaluatorName.trim()),
-  hasClassDate: Boolean(classDate),
-  hasClassTime: Boolean(classTime.trim()),
-  hasClassType: Boolean(classType),
-};
+    hasStudio: Boolean(selectedStudioId && selectedStudioId !== "all"),
+    singleStudioScope: !isAllStudios,
+    hasTemplate: Boolean(selectedTemplate?.id),
+    hasCoach: Boolean(coachId),
+    hasEvaluatorName: Boolean(evaluatorName.trim()),
+    hasClassDate: Boolean(classDate),
+    hasClassTime: Boolean(classTime.trim()),
+    hasClassType: Boolean(classType),
+  };
 
-const canStart =
-  startValidation.hasStudio &&
-  startValidation.singleStudioScope &&
-  startValidation.hasTemplate &&
-  startValidation.hasCoach &&
-  startValidation.hasEvaluatorName &&
-  startValidation.hasClassDate &&
-  startValidation.hasClassTime &&
-  startValidation.hasClassType;
+  const canStart =
+    startValidation.hasStudio &&
+    startValidation.singleStudioScope &&
+    startValidation.hasTemplate &&
+    startValidation.hasCoach &&
+    startValidation.hasEvaluatorName &&
+    startValidation.hasClassDate &&
+    startValidation.hasClassTime &&
+    startValidation.hasClassType;
 
   return (
     <div className="mx-auto w-full max-w-5xl min-w-0 space-y-5 p-4 sm:space-y-6 sm:p-6">
+      <button
+        type="button"
+        onClick={() =>
+          navigate(
+            selectedStudioId && selectedStudioId !== "all"
+              ? `/?studio=${selectedStudioId}`
+              : "/",
+          )
+        }
+        className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back
+      </button>
+
       <SurfaceCard className="p-5 sm:p-6">
         <div className="space-y-3">
           <div>
@@ -603,10 +673,10 @@ const canStart =
               Class Time
             </label>
             <Input
-  type="time"
-  value={classTime}
-  onChange={(event) => setClassTime(event.target.value)}
-/>
+              type="time"
+              value={classTime}
+              onChange={(event) => setClassTime(event.target.value)}
+            />
           </div>
 
           <div className="space-y-2">
@@ -688,40 +758,42 @@ const canStart =
             </Select>
           </div>
         </div>
-{!canStart ? (
-  <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
-    <p className="text-sm font-medium text-amber-300">
-      Complete the required fields to start the evaluation.
-    </p>
-    <div className="mt-2 grid gap-1 text-xs text-amber-200/80 sm:grid-cols-2">
-      {!startValidation.hasStudio ? <p>• Studio is required</p> : null}
-      {!startValidation.singleStudioScope ? (
-        <p>• Switch from All Studios to one studio</p>
-      ) : null}
-      {!startValidation.hasTemplate ? <p>• Template is required</p> : null}
-      {!startValidation.hasCoach ? <p>• Coach is required</p> : null}
-      {!startValidation.hasEvaluatorName ? (
-        <p>• Evaluator name is required</p>
-      ) : null}
-      {!startValidation.hasClassDate ? <p>• Class date is required</p> : null}
-      {!startValidation.hasClassTime ? <p>• Class time is required</p> : null}
-      {!startValidation.hasClassType ? <p>• Class type is required</p> : null}
-    </div>
-  </div>
-) : null}
+
+        {!canStart ? (
+          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
+            <p className="text-sm font-medium text-amber-300">
+              Complete the required fields to start the evaluation.
+            </p>
+            <div className="mt-2 grid gap-1 text-xs text-amber-200/80 sm:grid-cols-2">
+              {!startValidation.hasStudio ? <p>• Studio is required</p> : null}
+              {!startValidation.singleStudioScope ? (
+                <p>• Switch from All Studios to one studio</p>
+              ) : null}
+              {!startValidation.hasTemplate ? <p>• Template is required</p> : null}
+              {!startValidation.hasCoach ? <p>• Coach is required</p> : null}
+              {!startValidation.hasEvaluatorName ? (
+                <p>• Evaluator name is required</p>
+              ) : null}
+              {!startValidation.hasClassDate ? <p>• Class date is required</p> : null}
+              {!startValidation.hasClassTime ? <p>• Class time is required</p> : null}
+              {!startValidation.hasClassType ? <p>• Class type is required</p> : null}
+            </div>
+          </div>
+        ) : null}
+
         <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:flex-wrap">
           <Button
-  type="button"
-  onClick={() => createMutation.mutate()}
-  disabled={
-    createMutation.isPending ||
-    coachesQuery.isLoading ||
-    templatesQuery.isLoading ||
-    !canStart
-  }
->
-  {createMutation.isPending ? "Creating..." : "Start Evaluation"}
-</Button>
+            type="button"
+            onClick={() => createMutation.mutate()}
+            disabled={
+              createMutation.isPending ||
+              coachesQuery.isLoading ||
+              templatesQuery.isLoading ||
+              !canStart
+            }
+          >
+            {createMutation.isPending ? "Creating..." : "Start Evaluation"}
+          </Button>
 
           {selectedStudioId && !isAllStudios ? (
             <Button

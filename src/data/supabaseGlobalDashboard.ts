@@ -8,6 +8,11 @@ export type GlobalStudioStats = {
   coaches_count: number;
   high_risk_count: number;
   no_evaluation_count: number;
+
+  overdue_count: number;
+  due_soon_count: number;
+  on_track_count: number;
+
   rank: number;
   trend: "improving" | "declining" | "stable";
   delta: number;
@@ -61,47 +66,62 @@ export async function getGlobalDashboardData(): Promise<GlobalStudioStats[]> {
   }
 
   const byStudio = new Map<
-    string,
-    {
-      studio_id: string;
-      studio_name: string;
-      average_score_sum: number;
-      total_evaluations: number;
-      coaches_count: number;
-      high_risk_count: number;
-      no_evaluation_count: number;
-      recent_scores: number[];
-      previous_scores: number[];
-    }
-  >();
+  string,
+  {
+    studio_id: string;
+    studio_name: string;
+    average_score_sum: number;
+    total_evaluations: number;
+    coaches_count: number;
+    high_risk_count: number;
+    no_evaluation_count: number;
+
+    overdue_count: number;
+    due_soon_count: number;
+    on_track_count: number;
+
+    recent_scores: number[];
+    previous_scores: number[];
+  }
+>();
 
   for (const studio of studios) {
     byStudio.set(studio.id, {
-      studio_id: studio.id,
-      studio_name: studio.name,
-      average_score_sum: 0,
-      total_evaluations: 0,
-      coaches_count: 0,
-      high_risk_count: 0,
-      no_evaluation_count: 0,
-      recent_scores: [],
-      previous_scores: [],
-    });
+  studio_id: studio.id,
+  studio_name: studio.name,
+  average_score_sum: 0,
+  total_evaluations: 0,
+  coaches_count: 0,
+  high_risk_count: 0,
+  no_evaluation_count: 0,
+
+  overdue_count: 0,
+  due_soon_count: 0,
+  on_track_count: 0,
+
+  recent_scores: [],
+  previous_scores: [],
+});
   }
 
   for (const coach of coaches) {
     if (!byStudio.has(coach.studio_id)) {
       byStudio.set(coach.studio_id, {
-        studio_id: coach.studio_id,
-        studio_name: studioNameMap.get(coach.studio_id) ?? coach.studio_id,
-        average_score_sum: 0,
-        total_evaluations: 0,
-        coaches_count: 0,
-        high_risk_count: 0,
-        no_evaluation_count: 0,
-        recent_scores: [],
-        previous_scores: [],
-      });
+  studio_id: coach.studio_id,
+  studio_name: studioNameMap.get(coach.studio_id) ?? coach.studio_id,
+  average_score_sum: 0,
+  total_evaluations: 0,
+  coaches_count: 0,
+  high_risk_count: 0,
+  no_evaluation_count: 0,
+
+  overdue_count: 0,
+  due_soon_count: 0,
+  on_track_count: 0,
+
+  recent_scores: [],
+  previous_scores: [],
+});
     }
 
     const studio = byStudio.get(coach.studio_id)!;
@@ -117,7 +137,25 @@ export async function getGlobalDashboardData(): Promise<GlobalStudioStats[]> {
       studio.no_evaluation_count += 1;
       continue;
     }
+    const latestEval = coachEvaluations[0];
 
+const evalDate = latestEval.class_date
+  ? new Date(latestEval.class_date)
+  : null;
+
+if (evalDate) {
+  const now = new Date();
+  const diffDays =
+    (now.getTime() - evalDate.getTime()) / (1000 * 60 * 60 * 24);
+
+  if (diffDays > 120) {
+    studio.overdue_count += 1;
+  } else if (diffDays > 90) {
+    studio.due_soon_count += 1;
+  } else {
+    studio.on_track_count += 1;
+  }
+}
     const recent = coachEvaluations.slice(0, 2);
     const previous = coachEvaluations.slice(2, 4);
 
@@ -140,17 +178,22 @@ export async function getGlobalDashboardData(): Promise<GlobalStudioStats[]> {
     const studioId = evaluation.studio_id;
 
     if (!byStudio.has(studioId)) {
-      byStudio.set(studioId, {
-        studio_id: studioId,
-        studio_name: studioNameMap.get(studioId) ?? studioId,
-        average_score_sum: 0,
-        total_evaluations: 0,
-        coaches_count: 0,
-        high_risk_count: 0,
-        no_evaluation_count: 0,
-        recent_scores: [],
-        previous_scores: [],
-      });
+     byStudio.set(studioId, {
+  studio_id: studioId,
+  studio_name: studioNameMap.get(studioId) ?? studioId,
+  average_score_sum: 0,
+  total_evaluations: 0,
+  coaches_count: 0,
+  high_risk_count: 0,
+  no_evaluation_count: 0,
+
+  overdue_count: 0,
+  due_soon_count: 0,
+  on_track_count: 0,
+
+  recent_scores: [],
+  previous_scores: [],
+});
     }
 
     const current = byStudio.get(studioId)!;
@@ -190,17 +233,22 @@ export async function getGlobalDashboardData(): Promise<GlobalStudioStats[]> {
     if (delta <= -3) trend = "declining";
 
     return {
-      studio_id: studio.studio_id,
-      studio_name: studio.studio_name,
-      average_score,
-      total_evaluations: studio.total_evaluations,
-      coaches_count: studio.coaches_count,
-      high_risk_count: studio.high_risk_count,
-      no_evaluation_count: studio.no_evaluation_count,
-      rank: 0,
-      trend,
-      delta,
-    };
+  studio_id: studio.studio_id,
+  studio_name: studio.studio_name,
+  average_score,
+  total_evaluations: studio.total_evaluations,
+  coaches_count: studio.coaches_count,
+  high_risk_count: studio.high_risk_count,
+  no_evaluation_count: studio.no_evaluation_count,
+
+  overdue_count: studio.overdue_count,
+  due_soon_count: studio.due_soon_count,
+  on_track_count: studio.on_track_count,
+
+  rank: 0,
+  trend,
+  delta,
+};
   });
 
   result.sort((a, b) => {

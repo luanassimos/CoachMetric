@@ -30,15 +30,15 @@ const trainingSessionsKey = (studioId: string | "all" | null) =>
   ["training_sessions", studioId] as const;
 
 export const useTrainingSessions = () => {
-  const { selectedStudioId, isAllStudios } = useStudio();
-
-  const resolvedStudioId =
-    !selectedStudioId || isAllStudios ? undefined : selectedStudioId;
+  const { selectedStudioId, isAllStudios, isReady } = useStudio();
 
   return useQuery({
     queryKey: trainingSessionsKey(selectedStudioId),
-    queryFn: () => fetchTrainingSessionsByStudio(resolvedStudioId),
-    enabled: isAllStudios || !!selectedStudioId,
+    queryFn: () =>
+      fetchTrainingSessionsByStudio(
+        selectedStudioId === "all" ? undefined : selectedStudioId
+      ),
+    enabled: isReady && (!!selectedStudioId || isAllStudios),
     placeholderData: keepPreviousData,
     staleTime: 30_000,
   });

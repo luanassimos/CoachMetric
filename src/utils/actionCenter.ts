@@ -6,7 +6,7 @@ import { calculateCoachRisk } from "@/utils/risk";
 type CoachWithCycle = Coach & {
   evaluationCycle?: {
     evaluation_status?: "overdue" | "due_soon" | "on_track";
-    [key: string]: any;
+    [key: string]: unknown;
   } | null;
 };
 

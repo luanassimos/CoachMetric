@@ -14,6 +14,12 @@ type Props = {
   ) => Promise<void> | void;
 };
 
+type LegacySelectOption =
+  | string
+  | number
+  | boolean
+  | { label?: string; value?: string | number | boolean };
+
 export default function DynamicEvaluationForm({
   template,
   saving = false,
@@ -119,7 +125,27 @@ const canSave = answeredItems > 0 && !saving;
                     {sortedItems.map((item, itemIndex) => {
                       const itemCode =
                         item.code ?? `${section.code ?? sectionIndex}-${itemIndex}`;
-                      const itemType = item.type ?? "boolean";
+                      const rawType = String(item.input_type ?? "").toLowerCase();
+
+let itemType: "boolean" | "scale" | "select" = "boolean";
+
+if (
+  rawType === "score" ||
+  rawType === "scale" ||
+  rawType === "rating" ||
+  rawType === "number"
+) {
+  itemType = "scale";
+} else if (
+  rawType === "select" ||
+  rawType === "choice" ||
+  rawType === "options"
+) {
+  itemType =
+    item.options && item.options.length > 0 ? "select" : "boolean";
+} else {
+  itemType = "boolean";
+}
                       const itemLabel = item.label ?? itemCode;
                       const value = responses[itemCode];
 
@@ -186,20 +212,37 @@ const canSave = answeredItems > 0 && !saving;
                           label={itemLabel}
                           controls={
                             <div className="flex flex-wrap gap-2 sm:justify-end">
-                              {(item.options ?? []).map((optionValue) => (
-                                <ScaleChip
-                                  key={String(optionValue)}
-                                  active={value === optionValue}
-                                  onClick={() =>
-                                    setResponse(
-                                      itemCode,
-                                      optionValue as number | boolean
-                                    )
-                                  }
-                                >
-                                  {String(optionValue)}
-                                </ScaleChip>
-                              ))}
+                              {(item.options ?? []).map((optionValue) => {
+                                const raw = optionValue as LegacySelectOption;
+                                const normalizedRawValue =
+                                  typeof raw === "object" && raw !== null
+                                    ? (raw.value ?? raw.label ?? "")
+                                    : raw;
+                                const normalizedOptionValue: number | boolean =
+                                  normalizedRawValue === true ||
+                                  normalizedRawValue === false
+                                    ? normalizedRawValue
+                                    : Number(normalizedRawValue);
+                                const optionLabel =
+                                  typeof raw === "object" && raw !== null
+                                    ? String(raw.label ?? raw.value ?? "")
+                                    : String(raw);
+
+                                return (
+                                  <ScaleChip
+                                    key={optionLabel || String(normalizedRawValue)}
+                                    active={
+                                      String(value) ===
+                                      String(normalizedOptionValue)
+                                    }
+                                    onClick={() =>
+                                      setResponse(itemCode, normalizedOptionValue)
+                                    }
+                                  >
+                                    {optionLabel}
+                                  </ScaleChip>
+                                );
+                              })}
                             </div>
                           }
                         />

@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Search, Plus, LayoutTemplate } from "lucide-react";
+import { Search, Plus, LayoutTemplate, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ export default function EvaluationTemplatePage() {
   const navigate = useNavigate();
   const { studioId: routeStudioId } = useParams<{ studioId: string }>();
   const [searchParams] = useSearchParams();
-  const { selectedStudioId } = useStudio();
+  const { selectedStudioId, setSelectedStudioId } = useStudio();
   const [search, setSearch] = useState("");
 
   const scopedStudioId =
@@ -21,6 +21,13 @@ export default function EvaluationTemplatePage() {
     searchParams.get("studio") ||
     selectedStudioId ||
     "";
+
+  useEffect(() => {
+    if (!routeStudioId) return;
+    if (routeStudioId !== selectedStudioId) {
+      setSelectedStudioId(routeStudioId);
+    }
+  }, [routeStudioId, selectedStudioId, setSelectedStudioId]);
 
   const scopedQuery = scopedStudioId ? `?studio=${scopedStudioId}` : "";
 
@@ -51,7 +58,11 @@ export default function EvaluationTemplatePage() {
   const defaultCount = templates.filter((template) => template.is_default).length;
 
   if (loading) {
-    return <div className="p-6 text-sm text-muted-foreground">Loading templates...</div>;
+    return (
+      <div className="p-6 text-sm text-muted-foreground">
+        Loading templates...
+      </div>
+    );
   }
 
   if (error) {
@@ -64,6 +75,17 @@ export default function EvaluationTemplatePage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-6">
+      <button
+        type="button"
+        onClick={() =>
+          navigate(scopedStudioId ? `/?studio=${scopedStudioId}` : "/")
+        }
+        className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back
+      </button>
+
       <div className="rounded-3xl border border-white/8 bg-white/[0.03] p-6 shadow-[0_1px_0_rgba(255,255,255,0.03)_inset]">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
@@ -171,10 +193,12 @@ export default function EvaluationTemplatePage() {
                     templateStudioId: template.studio_id,
                   });
                   toast.success("Default template updated");
-                } catch (error: any) {
+                } catch (error: unknown) {
                   console.error(error);
                   toast.error(
-                    error.message ?? "Failed to set default template",
+                    error instanceof Error
+                      ? error.message
+                      : "Failed to set default template",
                   );
                 }
               }}
@@ -186,11 +210,18 @@ export default function EvaluationTemplatePage() {
                 if (!confirmed) return;
 
                 try {
-                  await deleteTemplate(template.id);
+                  await deleteTemplate({
+                    templateId: template.id,
+                    templateStudioId: template.studio_id,
+                  });
                   toast.success("Template deleted");
-                } catch (error: any) {
+                } catch (error: unknown) {
                   console.error(error);
-                  toast.error(error.message ?? "Failed to delete template");
+                  toast.error(
+                    error instanceof Error
+                      ? error.message
+                      : "Failed to delete template",
+                  );
                 }
               }}
             />

@@ -16,15 +16,17 @@ export type StoredEvaluationResponse = {
 
 export function useEvaluationResponses(
   evaluationId: string | undefined,
+  studioId?: string | null,
 ) {
   const { selectedStudioId } = useStudio();
   const queryClient = useQueryClient();
+  const scopedStudioId = studioId ?? selectedStudioId;
 
   const responsesQuery = useQuery({
-    enabled: Boolean(evaluationId && selectedStudioId && selectedStudioId !== "all"),
-    queryKey: ["evaluation-v2-responses", evaluationId, selectedStudioId],
+    enabled: Boolean(evaluationId && scopedStudioId && scopedStudioId !== "all"),
+    queryKey: ["evaluation-v2-responses", evaluationId, scopedStudioId],
     queryFn: async (): Promise<StoredEvaluationResponse[]> => {
-      if (!evaluationId || !selectedStudioId || selectedStudioId === "all") {
+      if (!evaluationId || !scopedStudioId || scopedStudioId === "all") {
         throw new Error("Invalid context");
       }
 
@@ -46,7 +48,7 @@ export function useEvaluationResponses(
 
   const saveResponseMutation = useMutation({
     mutationFn: async (input: EvaluationResponseInput) => {
-      if (!evaluationId || !selectedStudioId || selectedStudioId === "all") {
+      if (!evaluationId || !scopedStudioId || scopedStudioId === "all") {
         throw new Error("Invalid context");
       }
 
@@ -98,7 +100,7 @@ export function useEvaluationResponses(
     },
     onSuccess: (data) => {
       queryClient.setQueryData(
-        ["evaluation-v2-responses", evaluationId, selectedStudioId],
+        ["evaluation-v2-responses", evaluationId, scopedStudioId],
         (old: StoredEvaluationResponse[] | undefined) => {
           if (!old) return [data];
 

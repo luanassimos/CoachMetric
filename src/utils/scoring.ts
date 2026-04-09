@@ -2,12 +2,31 @@
 // All evaluation scoring logic lives here
 
 import type { PerformanceBand } from "@/lib/types";
+import { getScoreHealthMeta } from "@/utils/enterpriseIntelligence";
 
 export function getPerformanceBand(score: number): PerformanceBand {
-  if (score >= 90) return { label: "Exceptional", className: "badge-exceptional", minScore: 90 };
-  if (score >= 80) return { label: "Strong", className: "badge-strong", minScore: 80 };
-  if (score >= 70) return { label: "On Track", className: "badge-on-track", minScore: 70 };
-  if (score >= 60) return { label: "Needs Attention", className: "badge-needs-attention", minScore: 60 };
+  const meta = getScoreHealthMeta(score);
+
+  if (meta.key === "strong") {
+    return { label: "Strong", className: "badge-exceptional", minScore: 90 };
+  }
+
+  if (meta.key === "acceptable") {
+    return { label: "Acceptable", className: "badge-strong", minScore: 85 };
+  }
+
+  if (meta.key === "below_standard") {
+    return {
+      label: "Below Standard",
+      className: "badge-needs-attention",
+      minScore: 70,
+    };
+  }
+
+  if (meta.key === "at_risk") {
+    return { label: "At Risk", className: "badge-needs-attention", minScore: 50 };
+  }
+
   return { label: "Critical", className: "badge-critical", minScore: 0 };
 }
 

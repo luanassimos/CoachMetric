@@ -16,6 +16,8 @@ import { useCoaches } from "@/hooks/useCoaches";
 import { getCoachName } from "@/data/helpers";
 import { useStudio } from "@/contexts/StudioContext";
 import { useStudios } from "@/hooks/useStudios";
+import type { Coach, Studio } from "@/lib/types";
+import type { TrainingSession } from "@/hooks/useTrainingSessions";
 import {
   Table,
   TableBody,
@@ -29,6 +31,11 @@ type AttendanceRow = {
   coach_id: string;
   attended: boolean;
   notes: string;
+};
+
+type TrainingAttendanceRecord = AttendanceRow & {
+  id?: string;
+  training_session_id: string;
 };
 
 function SurfaceCard({
@@ -137,7 +144,7 @@ export default function EditTrainingPage() {
 })();
 
   const studioNameMap = useMemo(() => {
-    return new Map(studios.map((studio) => [studio.id, studio.name]));
+    return new Map(studios.map((studio: Studio) => [studio.id, studio.name]));
   }, [studios]);
 
   const effectiveStudioName = useMemo(() => {
@@ -146,7 +153,7 @@ export default function EditTrainingPage() {
 
   const visibleCoaches = useMemo(() => {
     if (!effectiveStudioId) return [];
-    return coaches.filter((coach: any) => coach.studio_id === effectiveStudioId);
+    return coaches.filter((coach: Coach) => coach.studio_id === effectiveStudioId);
   }, [coaches, effectiveStudioId]);
 
   function updateAttendanceRow(coachId: string, updates: Partial<AttendanceRow>) {
@@ -190,9 +197,9 @@ export default function EditTrainingPage() {
     : effectiveStudioId || (selectedStudioId !== "all" ? selectedStudioId || "" : "");
 
 navigate(scopedStudio ? `/training?studio=${scopedStudio}` : "/training");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to update training session:", error);
-      alert(error.message || "Failed to save training.");
+      alert(error instanceof Error ? error.message : "Failed to save training.");
     } finally {
       setSaving(false);
     }
@@ -215,9 +222,9 @@ navigate(scopedStudio ? `/training?studio=${scopedStudio}` : "/training");
       }
 
       alert("Attendance saved.");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to save attendance:", error);
-      alert(error.message || "Failed to save attendance.");
+      alert(error instanceof Error ? error.message : "Failed to save attendance.");
     } finally {
       setAttendanceSaving(false);
     }
@@ -237,9 +244,9 @@ navigate(scopedStudio ? `/training?studio=${scopedStudio}` : "/training");
     : effectiveStudioId || (selectedStudioId !== "all" ? selectedStudioId || "" : "");
 
 navigate(scopedStudio ? `/training?studio=${scopedStudio}` : "/training");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to delete training session:", error);
-      alert(error.message || "Failed to delete training.");
+      alert(error instanceof Error ? error.message : "Failed to delete training.");
     }
   }
 
@@ -428,7 +435,7 @@ navigate(scopedStudio ? `/training?studio=${scopedStudio}` : "/training");
                 </TableCell>
               </TableRow>
             ) : (
-              visibleCoaches.map((coach: any) => {
+              visibleCoaches.map((coach: Coach) => {
                 const row = attendanceMap[coach.id] ?? {
                   coach_id: coach.id,
                   attended: false,

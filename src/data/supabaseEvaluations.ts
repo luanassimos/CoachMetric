@@ -50,13 +50,13 @@ export async function fetchEvaluations(
 
 export async function fetchEvaluationById(
   id: string,
-  studioId?: string
+  studioId: string,
 ): Promise<Evaluation> {
-  let query = supabase.from("evaluations").select("*").eq("id", id);
-
-  if (studioId) {
-    query = query.eq("studio_id", studioId);
-  }
+  const query = supabase
+    .from("evaluations")
+    .select("*")
+    .eq("id", id)
+    .eq("studio_id", studioId);
 
   const { data, error } = await query.single();
 
@@ -82,6 +82,17 @@ export async function createEvaluation(
 
   if (!resolvedStudioId) {
     throw new Error("Could not resolve studio_id for evaluation.");
+  }
+
+  const { data: coachStudio, error: coachStudioError } = await supabase
+    .from("coaches")
+    .select("studio_id")
+    .eq("id", input.coach_id)
+    .eq("studio_id", resolvedStudioId)
+    .single();
+
+  if (coachStudioError || !coachStudio?.studio_id) {
+    throw new Error("Coach does not belong to the selected studio.");
   }
 
   const payload = {

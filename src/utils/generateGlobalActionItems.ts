@@ -124,22 +124,30 @@ export function generateGlobalActionItems(params: {
 
     const recentWeightedScore = Math.round(weightedScore(recentScores));
     const recentAverageScore = Math.round(average(recentScores));
+const grouped = new Map<string, InputInsight[]>();
 
-    const flattenedInsights = recentEvaluations.flatMap((evaluation) =>
-      (params.insightsByEvaluationId[evaluation.id] ?? []).map((insight) => ({
+for (const evaluation of recentEvaluations) {
+  const insights = params.insightsByEvaluationId[evaluation.id] ?? [];
+
+  for (const insight of insights) {
+    const key = insight.category + "::" + insight.title;
+    const existing = grouped.get(key);
+
+    if (existing) {
+      existing.push({
         ...insight,
         evaluationId: evaluation.id,
-      })),
-    );
-
-    const grouped = new Map<string, InputInsight[]>();
-
-    for (const insight of flattenedInsights) {
-      const key = `${insight.category}::${insight.title}`;
-      const existing = grouped.get(key) ?? [];
-      existing.push(insight);
-      grouped.set(key, existing);
+      });
+    } else {
+      grouped.set(key, [
+        {
+          ...insight,
+          evaluationId: evaluation.id,
+        },
+      ]);
     }
+  }
+}
 
     for (const [, groupedInsights] of grouped.entries()) {
       const latestInsight = groupedInsights[0];

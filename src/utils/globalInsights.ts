@@ -26,8 +26,8 @@ export function generateGlobalInsights(data: DashboardData): GlobalInsight[] {
   if (weakest.value < 65) {
     insights.push({
       id: "weakest-attribute",
-      title: `Weakest team area: ${weakest.label}`,
-      description: `${weakest.label} is currently the lowest team attribute at ${weakest.value}. This is a good candidate for the next training focus.`,
+      title: `${weakest.label} is the clearest execution drag`,
+      description: `${weakest.label} is the weakest team attribute at ${weakest.value}. This is the most defensible next training focus.`,
       severity: "warning",
     });
   }
@@ -35,8 +35,8 @@ export function generateGlobalInsights(data: DashboardData): GlobalInsight[] {
   if (strongest.value >= 80) {
     insights.push({
       id: "strongest-attribute",
-      title: `Strongest team area: ${strongest.label}`,
-      description: `${strongest.label} is leading the team at ${strongest.value}. This is a clear current strength.`,
+      title: `${strongest.label} is holding the team up`,
+      description: `${strongest.label} leads the team at ${strongest.value}. This is the most repeatable strength available right now.`,
       severity: "positive",
     });
   }
@@ -44,8 +44,8 @@ export function generateGlobalInsights(data: DashboardData): GlobalInsight[] {
   if (data.high_risk_count > 0) {
     insights.push({
       id: "high-risk",
-      title: `${data.high_risk_count} high risk coach(es) require attention`,
-      description: `There are currently ${data.high_risk_count} high risk coaches in the system. Review notes, trends, and development plans.`,
+      title: `${data.high_risk_count} high-risk coach(es) require intervention`,
+      description: `Risk exposure is concentrated in ${data.high_risk_count} coach(es). Review the highest-risk profiles before the next cycle slips.`,
       severity: "critical",
     });
   }
@@ -53,8 +53,8 @@ export function generateGlobalInsights(data: DashboardData): GlobalInsight[] {
   if (data.moderate_risk_count >= 2) {
     insights.push({
       id: "moderate-risk",
-      title: `${data.moderate_risk_count} moderate risk coach(es) need follow-up`,
-      description: `Several coaches are trending toward support needs. Monitoring and feedback may be needed soon.`,
+      title: `${data.moderate_risk_count} moderate-risk coach(es) are building pressure`,
+      description: `Several coaches are moving toward support needs. Early follow-up now is cheaper than a later recovery cycle.`,
       severity: "warning",
     });
   }
@@ -62,8 +62,8 @@ export function generateGlobalInsights(data: DashboardData): GlobalInsight[] {
   if (data.declining_coaches.length > 0) {
     insights.push({
       id: "declining-coaches",
-      title: `${data.declining_coaches.length} coach(es) are declining`,
-      description: `Performance trend is declining for ${data.declining_coaches.length} coach(es). Review the lowest trend cases first.`,
+      title: `${data.declining_coaches.length} coach(es) are losing momentum`,
+      description: `Recent performance is declining for ${data.declining_coaches.length} coach(es). Review the lowest-trend cases before the decline becomes structural.`,
       severity: "warning",
     });
   }
@@ -71,8 +71,8 @@ export function generateGlobalInsights(data: DashboardData): GlobalInsight[] {
   if (data.improving_coaches.length > 0) {
     insights.push({
       id: "improving-coaches",
-      title: `${data.improving_coaches.length} coach(es) are improving`,
-      description: `There are ${data.improving_coaches.length} coach(es) showing upward momentum. These coaches may be ready for more responsibility.`,
+      title: `${data.improving_coaches.length} coach(es) are recovering`,
+      description: `Upward momentum is visible for ${data.improving_coaches.length} coach(es), but leadership should confirm the gains are repeatable.`,
       severity: "positive",
     });
   }
@@ -80,15 +80,15 @@ export function generateGlobalInsights(data: DashboardData): GlobalInsight[] {
   if (data.team_average_score < 70) {
     insights.push({
       id: "team-average-low",
-      title: "Team average is below target",
-      description: `The current team average is ${data.team_average_score}%. Consider targeted retraining and more frequent evaluations.`,
+      title: "Team performance is materially below standard",
+      description: `The team average is ${data.team_average_score}%. The issue is no longer marginal and should be managed as an operating problem.`,
       severity: "critical",
     });
   } else if (data.team_average_score >= 80) {
     insights.push({
       id: "team-average-strong",
-      title: "Team average is strong",
-      description: `The current team average is ${data.team_average_score}%. Overall team performance is in a strong range.`,
+      title: "Team performance is holding",
+      description: `The team average is ${data.team_average_score}%. Execution is currently stable enough to preserve momentum while tightening weaker areas.`,
       severity: "positive",
     });
   }
@@ -100,8 +100,8 @@ export function generateGlobalInsights(data: DashboardData): GlobalInsight[] {
     if (topNoteType[1] >= 2) {
       insights.push({
         id: "top-note-type",
-        title: `Most common note type: ${topNoteType[0].replace(/_/g, " ")}`,
-        description: `The most frequent logged issue/category is "${topNoteType[0].replace(/_/g, " ")}" with ${topNoteType[1]} note(s).`,
+        title: `${topNoteType[0].replace(/_/g, " ")} is repeating`,
+        description: `The most common logged issue is "${topNoteType[0].replace(/_/g, " ")}" with ${topNoteType[1]} note(s). Repetition suggests a system pattern, not an isolated event.`,
         severity: topNoteType[0] === "positive" ? "positive" : "info",
       });
     }

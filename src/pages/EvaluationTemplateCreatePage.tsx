@@ -73,7 +73,7 @@ function parseOptionsText(optionsText: string) {
     .map((line) => line.trim())
     .filter(Boolean);
 
-  return lines.map((line) => {
+  return lines.map((line): EvaluationTemplateItemOption => {
     const [labelPart, valuePart, scorePart] = line.split("|").map((part) => part?.trim());
 
     return {
@@ -89,7 +89,7 @@ export default function EvaluationTemplateCreatePage() {
   const { studioId } = useParams<{ studioId: string }>();
   const [searchParams] = useSearchParams();
 
-  const scopedStudio = searchParams.get("studio") || studioId || "all";
+  const scopedStudio = studioId || searchParams.get("studio") || "all";
   const scopedQuery = `?studio=${scopedStudio}`;
 
   const [name, setName] = useState("");
@@ -198,7 +198,10 @@ export default function EvaluationTemplateCreatePage() {
 
     try {
       const templateId = nanoid();
-
+await supabase
+  .from("evaluation_templates")
+  .update({ is_default: false })
+  .eq("studio_id", studioId);
       const { error: templateError } = await supabase
         .from("evaluation_templates")
         .insert({
@@ -207,7 +210,7 @@ export default function EvaluationTemplateCreatePage() {
           name: name.trim(),
           description: description.trim() || null,
           is_active: true,
-          is_default: false,
+          is_default: true,
           version: 1,
         });
 
@@ -264,9 +267,11 @@ export default function EvaluationTemplateCreatePage() {
 
       toast.success("Template created successfully");
       navigate(`/studios/${studioId}/evaluation-templates${scopedQuery}`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error);
-      toast.error(error.message ?? "Failed to create template");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to create template",
+      );
     } finally {
       setSaving(false);
     }
@@ -639,3 +644,4 @@ export default function EvaluationTemplateCreatePage() {
     </div>
   );
 }
+import type { EvaluationTemplateItemOption } from "@/lib/types";

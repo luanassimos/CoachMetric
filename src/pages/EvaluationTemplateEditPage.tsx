@@ -7,6 +7,7 @@ import { ArrowLeft, ClipboardList, Layers, Plus, Save } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import type { EvaluationTemplateItemOption } from "@/lib/types";
 import {
   Select,
   SelectContent,
@@ -92,7 +93,9 @@ function parseOptionsText(optionsText: string) {
   });
 }
 
-function stringifyOptions(options: any[] | null | undefined) {
+function stringifyOptions(
+  options: EvaluationTemplateItemOption[] | null | undefined,
+) {
   if (!options || options.length === 0) return "";
 
   return options
@@ -168,7 +171,20 @@ export default function EvaluationTemplateEditPage() {
 
         const sectionIds = (sectionRows ?? []).map((section) => section.id);
 
-        let itemRows: any[] = [];
+        let itemRows: Array<{
+          id: string;
+          section_id: string;
+          label: string | null;
+          description: string | null;
+          input_type: LocalItem["input_type"] | null;
+          min_score: number | null;
+          max_score: number | null;
+          weight: number | null;
+          is_required: boolean | null;
+          is_active: boolean | null;
+          condition: unknown;
+          options_json: EvaluationTemplateItemOption[] | null;
+        }> = [];
         if (sectionIds.length > 0) {
           const { data, error: itemsError } = await supabase
             .from("evaluation_template_items")
@@ -212,9 +228,11 @@ export default function EvaluationTemplateEditPage() {
         setSections(
           mappedSections.length > 0 ? mappedSections : [createEmptySection()],
         );
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error(error);
-        toast.error(error.message ?? "Failed to load template");
+        toast.error(
+          error instanceof Error ? error.message : "Failed to load template",
+        );
       } finally {
         setLoading(false);
       }
@@ -507,9 +525,11 @@ export default function EvaluationTemplateEditPage() {
 
       toast.success("Template updated successfully");
       navigate(`/studios/${studioId}/evaluation-templates${scopedQuery}`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error);
-      toast.error(error.message ?? "Failed to update template");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update template",
+      );
     } finally {
       setSaving(false);
     }

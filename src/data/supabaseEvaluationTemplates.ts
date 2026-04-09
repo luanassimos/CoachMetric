@@ -2,6 +2,7 @@ import { supabase } from "@/lib/supabase";
 import { evaluationSections } from "@/lib/evaluation-schema";
 import {
   EvaluationTemplate,
+  EvaluationTemplateItemOption,
   EvaluationTemplateSection,
   EvaluationTemplateItem,
 } from "@/lib/types";
@@ -12,20 +13,34 @@ type TemplateSectionWithItems = EvaluationTemplateSection & {
 
 export type NormalizedEvaluationTemplateItem = {
   id?: string;
+  section_id?: string;
   code: string;
   label: string;
+  description?: string | null;
   type: "boolean" | "scale" | "options";
+  input_type: "score" | "select" | "boolean" | "text";
   min?: number | null;
   max?: number | null;
-  options?: number[] | null;
+  min_score?: number | null;
+  max_score?: number | null;
+  weight?: number;
   sort_order?: number;
+  is_required?: boolean;
+  is_active?: boolean;
+  options?: EvaluationTemplateItemOption[] | null;
+  options_json?: EvaluationTemplateItemOption[] | null;
+  condition?: string | null;
 };
 
 export type NormalizedEvaluationTemplateSection = {
   id?: string;
   code: string;
   title: string;
+  description?: string | null;
+  module_key?: string | null;
   sort_order?: number;
+  display_order?: number;
+  is_active?: boolean;
   items: NormalizedEvaluationTemplateItem[];
 };
 
@@ -38,6 +53,69 @@ export type NormalizedEvaluationTemplate = {
   sections: NormalizedEvaluationTemplateSection[];
 };
 
+type TemplateLikeItem = Partial<NormalizedEvaluationTemplateItem> & {
+  id?: string;
+  section_id?: string;
+  title?: string;
+  required?: boolean;
+};
+
+type TemplateLikeSection = Partial<NormalizedEvaluationTemplateSection> & {
+  id?: string;
+  name?: string;
+  key?: string;
+  items?: TemplateLikeItem[] | null;
+};
+
+type TemplateLike = Partial<NormalizedEvaluationTemplate> & {
+  id: string;
+  studio_id?: string;
+  is_active?: boolean;
+  sections?: TemplateLikeSection[] | null;
+};
+
+async function assertTemplateBelongsToStudio(
+  templateId: string,
+  studioId: string,
+) {
+  const { data, error } = await supabase
+    .from("evaluation_templates")
+    .select("id")
+    .eq("id", templateId)
+    .eq("studio_id", studioId)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  if (!data) {
+    throw new Error("Template not found for the selected studio.");
+  }
+}
+
+async function assertSectionBelongsToStudio(sectionId: string, studioId: string) {
+  const { data, error } = await supabase
+    .from("evaluation_template_sections")
+    .select("id, template_id")
+    .eq("id", sectionId)
+    .single();
+
+  if (error) throw error;
+
+  await assertTemplateBelongsToStudio(data.template_id as string, studioId);
+}
+
+async function assertItemBelongsToStudio(itemId: string, studioId: string) {
+  const { data, error } = await supabase
+    .from("evaluation_template_items")
+    .select("id, section_id")
+    .eq("id", itemId)
+    .single();
+
+  if (error) throw error;
+
+  await assertSectionBelongsToStudio(data.section_id as string, studioId);
+}
+
 function toSnakeCase(value: string) {
   return value
     .trim()
@@ -46,7 +124,7 @@ function toSnakeCase(value: string) {
     .replace(/^_+|_+$/g, "");
 }
 
-function normalizeSectionCode(section: any, index: number) {
+function normalizeSectionCode(section: TemplateLikeSection, index: number) {
   if (typeof section?.code === "string" && section.code.trim()) {
     return section.code.trim();
   }
@@ -57,7 +135,7 @@ function normalizeSectionCode(section: any, index: number) {
   return toSnakeCase(title);
 }
 
-function normalizeItemType(item: any): "boolean" | "scale" | "options" {
+function normalizeItemType(item: TemplateLikeItem): "boolean" | "scale" | "options" {
   if (
     item?.type === "boolean" ||
     item?.type === "scale" ||
@@ -81,7 +159,11 @@ function normalizeItemType(item: any): "boolean" | "scale" | "options" {
   return "boolean";
 }
 
-function normalizeItemCode(item: any, sectionCode: string, index: number) {
+function normalizeItemCode(
+  item: TemplateLikeItem,
+  sectionCode: string,
+  index: number,
+) {
   if (typeof item?.code === "string" && item.code.trim()) {
     return item.code.trim();
   }
@@ -89,46 +171,74 @@ function normalizeItemCode(item: any, sectionCode: string, index: number) {
   return `${sectionCode}_${index + 1}`;
 }
 
-function normalizeItemOptions(item: any): number[] | null {
-  if (Array.isArray(item?.options)) {
-    return item.options as number[];
-  }
-
-  if (Array.isArray(item?.options_json)) {
-    return item.options_json
-      .map((value: unknown) => Number(value))
-      .filter((value: number) => !Number.isNaN(value));
-  }
-
-  return null;
-}
-
-function normalizeFullTemplate(template: any): NormalizedEvaluationTemplate {
+function normalizeFullTemplate(template: TemplateLike): NormalizedEvaluationTemplate {
   const sections = Array.isArray(template?.sections) ? template.sections : [];
 
   const normalizedSections: NormalizedEvaluationTemplateSection[] = sections.map(
-    (section: any, sectionIndex: number) => {
+    (section: TemplateLikeSection, sectionIndex: number) => {
       const sectionCode = normalizeSectionCode(section, sectionIndex);
       const rawItems = Array.isArray(section?.items) ? section.items : [];
 
       const normalizedItems: NormalizedEvaluationTemplateItem[] = rawItems.map(
-        (item: any, itemIndex: number) => ({
-          id: item?.id,
-          code: normalizeItemCode(item, sectionCode, itemIndex),
-          label: item?.label ?? `Item ${itemIndex + 1}`,
-          type: normalizeItemType(item),
-          min: item?.min ?? item?.min_score ?? null,
-          max: item?.max ?? item?.max_score ?? null,
-          options: normalizeItemOptions(item),
-          sort_order: item?.sort_order ?? itemIndex,
-        })
+        (item: TemplateLikeItem, itemIndex: number) => {
+          const normalizedType = normalizeItemType(item);
+
+          let normalizedInputType: "score" | "select" | "boolean" | "text" =
+            "boolean";
+
+          if (item?.input_type === "text") {
+            normalizedInputType = "text";
+          } else if (item?.input_type === "score" || normalizedType === "scale") {
+            normalizedInputType = "score";
+          } else if (
+            item?.input_type === "select" ||
+            normalizedType === "options"
+          ) {
+            normalizedInputType = "select";
+          } else if (
+            item?.input_type === "boolean" ||
+            normalizedType === "boolean"
+          ) {
+            normalizedInputType = "boolean";
+          }
+
+          return {
+            id: item?.id,
+            section_id: item?.section_id ?? section?.id,
+            code: normalizeItemCode(item, sectionCode, itemIndex),
+            label: item?.label ?? `Item ${itemIndex + 1}`,
+            description: item?.description ?? null,
+            type: normalizedType,
+            input_type: normalizedInputType,
+            min: item?.min ?? item?.min_score ?? null,
+            max: item?.max ?? item?.max_score ?? null,
+            min_score: item?.min_score ?? item?.min ?? null,
+            max_score: item?.max_score ?? item?.max ?? null,
+            weight: item?.weight ?? 1,
+            sort_order: item?.sort_order ?? itemIndex,
+            is_required:
+              item?.is_required === undefined ? true : Boolean(item.is_required),
+            is_active:
+              item?.is_active === undefined ? true : Boolean(item.is_active),
+            options: item?.options ?? item?.options_json ?? null,
+            options_json: item?.options_json ?? item?.options ?? null,
+            condition:
+              typeof item?.condition === "string" ? item.condition : "always",
+          };
+        }
       );
 
       return {
         id: section?.id,
         code: sectionCode,
         title: section?.title ?? `Section ${sectionIndex + 1}`,
+        description: section?.description ?? null,
+        module_key: section?.module_key ?? sectionCode,
         sort_order: section?.sort_order ?? sectionIndex,
+        display_order:
+          section?.display_order ?? section?.sort_order ?? sectionIndex,
+        is_active:
+          section?.is_active === undefined ? true : Boolean(section.is_active),
         items: normalizedItems.sort(
           (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
         ),
@@ -143,7 +253,9 @@ function normalizeFullTemplate(template: any): NormalizedEvaluationTemplate {
     version: template.version ?? 1,
     is_active: template.is_active,
     sections: normalizedSections.sort(
-      (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+      (a, b) =>
+        (a.display_order ?? a.sort_order ?? 0) -
+        (b.display_order ?? b.sort_order ?? 0)
     ),
   };
 }
@@ -172,7 +284,7 @@ export async function getNormalizedEvaluationTemplatesByStudio(
   const normalizedTemplates: NormalizedEvaluationTemplate[] = [];
 
   for (const template of templates) {
-    const fullTemplate = await getFullEvaluationTemplate(template.id);
+    const fullTemplate = await getFullEvaluationTemplate(template.id, studioId);
 
     if (!fullTemplate) continue;
 
@@ -206,11 +318,15 @@ export async function getActiveEvaluationTemplate(studioId: string) {
   return data as EvaluationTemplate;
 }
 
-export async function getEvaluationTemplateById(templateId: string) {
+export async function getEvaluationTemplateById(
+  templateId: string,
+  studioId: string,
+) {
   const { data, error } = await supabase
     .from("evaluation_templates")
     .select("*")
     .eq("id", templateId)
+    .eq("studio_id", studioId)
     .single();
 
   if (error) {
@@ -221,8 +337,11 @@ export async function getEvaluationTemplateById(templateId: string) {
   return data as EvaluationTemplate;
 }
 
-export async function getFullEvaluationTemplate(templateId: string) {
-  const template = await getEvaluationTemplateById(templateId);
+export async function getFullEvaluationTemplate(
+  templateId: string,
+  studioId: string,
+) {
+  const template = await getEvaluationTemplateById(templateId, studioId);
 
   if (!template) return null;
 
@@ -260,7 +379,7 @@ export async function getActiveEvaluationTemplateForStudio(
 
   if (!activeTemplate) return null;
 
-  const fullTemplate = await getFullEvaluationTemplate(activeTemplate.id);
+  const fullTemplate = await getFullEvaluationTemplate(activeTemplate.id, studioId);
 
   if (!fullTemplate) return null;
 
@@ -298,14 +417,18 @@ export async function createEvaluationTemplate(params: {
 
 export async function updateEvaluationTemplate(
   templateId: string,
+  studioId: string,
   updates: Partial<
     Pick<EvaluationTemplate, "name" | "description" | "is_active" | "version">
   >
 ) {
+  await assertTemplateBelongsToStudio(templateId, studioId);
+
   const { data, error } = await supabase
     .from("evaluation_templates")
     .update(updates)
     .eq("id", templateId)
+    .eq("studio_id", studioId)
     .select()
     .single();
 
@@ -317,8 +440,11 @@ export async function updateEvaluationTemplate(
   return data as EvaluationTemplate;
 }
 
-export async function deleteEvaluationTemplate(templateId: string) {
-  const template = await getEvaluationTemplateById(templateId);
+export async function deleteEvaluationTemplate(
+  templateId: string,
+  studioId: string,
+) {
+  const template = await getEvaluationTemplateById(templateId, studioId);
 
   if (!template) {
     throw new Error("Template not found");
@@ -365,7 +491,8 @@ export async function deleteEvaluationTemplate(templateId: string) {
   const { error: deleteTemplateError } = await supabase
     .from("evaluation_templates")
     .delete()
-    .eq("id", templateId);
+    .eq("id", templateId)
+    .eq("studio_id", studioId);
 
   if (deleteTemplateError) {
     console.error("Error deleting template:", deleteTemplateError);
@@ -379,6 +506,8 @@ export async function setActiveEvaluationTemplate(
   templateId: string,
   studioId: string
 ) {
+  await assertTemplateBelongsToStudio(templateId, studioId);
+
   const { error } = await supabase.rpc("set_active_evaluation_template", {
     p_template_id: templateId,
     p_studio_id: studioId,
@@ -393,12 +522,15 @@ export async function setActiveEvaluationTemplate(
 }
 
 export async function createEvaluationSection(params: {
+  studio_id: string;
   template_id: string;
   title: string;
   description?: string | null;
   sort_order?: number;
   is_active?: boolean;
 }) {
+  await assertTemplateBelongsToStudio(params.template_id, params.studio_id);
+
   const payload = {
     template_id: params.template_id,
     title: params.title,
@@ -423,6 +555,7 @@ export async function createEvaluationSection(params: {
 
 export async function updateEvaluationSection(
   sectionId: string,
+  studioId: string,
   updates: Partial<
     Pick<
       EvaluationTemplateSection,
@@ -430,6 +563,8 @@ export async function updateEvaluationSection(
     >
   >
 ) {
+  await assertSectionBelongsToStudio(sectionId, studioId);
+
   const { data, error } = await supabase
     .from("evaluation_template_sections")
     .update(updates)
@@ -445,7 +580,12 @@ export async function updateEvaluationSection(
   return data as EvaluationTemplateSection;
 }
 
-export async function deleteEvaluationSection(sectionId: string) {
+export async function deleteEvaluationSection(
+  sectionId: string,
+  studioId: string,
+) {
+  await assertSectionBelongsToStudio(sectionId, studioId);
+
   const { error } = await supabase
     .from("evaluation_template_sections")
     .delete()
@@ -460,6 +600,7 @@ export async function deleteEvaluationSection(sectionId: string) {
 }
 
 export async function createEvaluationItem(params: {
+  studio_id: string;
   section_id: string;
   label?: string;
   description?: string | null;
@@ -470,8 +611,10 @@ export async function createEvaluationItem(params: {
   sort_order?: number;
   is_required?: boolean;
   is_active?: boolean;
-  options_json?: any[] | null;
+  options_json?: unknown[] | null;
 }) {
+  await assertSectionBelongsToStudio(params.section_id, params.studio_id);
+
   const payload = {
     section_id: params.section_id,
     label: params.label ?? "New Item",
@@ -502,6 +645,7 @@ export async function createEvaluationItem(params: {
 
 export async function updateEvaluationItem(
   itemId: string,
+  studioId: string,
   updates: Partial<
     Pick<
       EvaluationTemplateItem,
@@ -518,6 +662,8 @@ export async function updateEvaluationItem(
     >
   >
 ) {
+  await assertItemBelongsToStudio(itemId, studioId);
+
   const { data, error } = await supabase
     .from("evaluation_template_items")
     .update(updates)
@@ -533,7 +679,9 @@ export async function updateEvaluationItem(
   return data as EvaluationTemplateItem;
 }
 
-export async function deleteEvaluationItem(itemId: string) {
+export async function deleteEvaluationItem(itemId: string, studioId: string) {
+  await assertItemBelongsToStudio(itemId, studioId);
+
   const { error } = await supabase
     .from("evaluation_template_items")
     .delete()
@@ -547,7 +695,12 @@ export async function deleteEvaluationItem(itemId: string) {
   return true;
 }
 
-export async function restoreDefaultEvaluationTemplate(templateId: string) {
+export async function restoreDefaultEvaluationTemplate(
+  templateId: string,
+  studioId: string,
+) {
+  await assertTemplateBelongsToStudio(templateId, studioId);
+
   const { data: existingSections, error: sectionsFetchError } = await supabase
     .from("evaluation_template_sections")
     .select("id")

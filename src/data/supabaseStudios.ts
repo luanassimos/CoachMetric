@@ -34,7 +34,7 @@ type SourceItemRow = {
   sort_order?: number | null;
   is_required?: boolean | null;
   is_active?: boolean | null;
-  options_json?: any[] | null;
+  options_json?: unknown[] | null;
   condition?: string | null;
 };
 
@@ -235,12 +235,22 @@ export async function ensureStudioDefaultTemplate(
   await cloneNorthBeachDefaultTemplateToStudio(studio);
 }
 
+function makeStudioId(name: string) {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 24);
+}
+
 export async function createStudio(input: {
   name: string;
   city?: string;
   state?: string;
 }): Promise<Studio> {
   const payload = {
+    id: makeStudioId(input.name),
     name: input.name.trim(),
     city: input.city?.trim() || null,
     state: input.state?.trim() || null,
@@ -252,18 +262,23 @@ export async function createStudio(input: {
     .select("*")
     .single();
 
-  if (error) throw error;
+  if (error) {
+    console.error("createStudio insert error", error);
+    throw error;
+  }
 
   const createdStudio = data as Studio;
 
   try {
     await cloneNorthBeachDefaultTemplateToStudio(createdStudio);
+    return createdStudio;
   } catch (cloneError) {
+    console.error("template clone failed", cloneError);
     await supabase.from("studios").delete().eq("id", createdStudio.id);
-    throw cloneError;
+    throw new Error(
+      "Studio creation was rolled back because the default template could not be provisioned.",
+    );
   }
-
-  return createdStudio;
 }
 
 export async function updateStudio(

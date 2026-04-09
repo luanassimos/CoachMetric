@@ -4,7 +4,9 @@ import { cn } from "@/lib/utils";
 import type {
   EvaluationResponseInput,
   EvaluationTemplateItem,
+  EvaluationTemplateItemOption,
 } from "@/utils/evaluationV2";
+import { resolveEffectiveInputType } from "@/lib/resolveEffectiveInputType";
 
 type Props = {
   item: EvaluationTemplateItem;
@@ -26,40 +28,7 @@ function getScoreRange(item: EvaluationTemplateItem) {
 }
 
 function normalizeInputType(item: EvaluationTemplateItem): NormalizedInputType {
-  const raw = String(item.input_type ?? "")
-    .trim()
-    .toLowerCase();
-
-  if (raw === "boolean" || raw === "bool" || raw === "yes_no" || raw === "pass_fail" || raw === "checkbox" || raw === "check" || raw === "response") {
-    return "boolean";
-  }
-
-  if (raw === "score" || raw === "scale" || raw === "rating" || raw === "number") {
-    return "score";
-  }
-
-  if (raw === "select" || raw === "choice" || raw === "option" || raw === "options" || raw === "dropdown") {
-    return "select";
-  }
-
-  if (raw === "text" || raw === "note" || raw === "notes" || raw === "comment") {
-    return "text";
-  }
-
-  if ((item.options_json ?? []).length > 0) {
-    return "select";
-  }
-
-  if (
-    item.min_score !== null &&
-    item.min_score !== undefined &&
-    item.max_score !== null &&
-    item.max_score !== undefined
-  ) {
-    return "score";
-  }
-
-  return "boolean";
+  return resolveEffectiveInputType(item);
 }
 
 function getInputLabel(inputType: NormalizedInputType) {
@@ -110,7 +79,7 @@ function ChoiceChip({
         "focus:outline-none focus:ring-2 focus:ring-primary/30",
         active
           ? "border-primary bg-primary text-primary-foreground shadow-[0_0_0_4px_rgba(255,255,255,0.03)]"
-          : "border-white/10 bg-white/[0.02] text-foreground hover:border-white/20 hover:bg-white/[0.04]",
+          : "border-white/10 bg-white/[0.02] text-foreground hover:border-white/20 hover:bg-white/[0.04]"
       )}
     >
       {children}
@@ -136,14 +105,14 @@ function ScoreChip({
         "focus:outline-none focus:ring-2 focus:ring-primary/30",
         active
           ? "border-primary bg-primary text-primary-foreground shadow-[0_0_0_4px_rgba(255,255,255,0.03)]"
-          : "border-white/10 bg-white/[0.02] text-foreground hover:border-white/20 hover:bg-white/[0.04]",
+          : "border-white/10 bg-white/[0.02] text-foreground hover:border-white/20 hover:bg-white/[0.04]"
       )}
     >
       <span className="text-base font-semibold leading-none">{value}</span>
       <span
         className={cn(
           "mt-2 text-[11px] font-medium uppercase tracking-wide",
-          active ? "text-primary-foreground/80" : "text-muted-foreground",
+          active ? "text-primary-foreground/80" : "text-muted-foreground"
         )}
       >
         Score
@@ -171,7 +140,7 @@ function DotChip({
         "focus:outline-none focus:ring-2 focus:ring-primary/30",
         active
           ? "border-primary bg-primary text-primary-foreground shadow-[0_0_0_4px_rgba(255,255,255,0.03)]"
-          : "border-white/10 bg-white/[0.02] text-foreground hover:border-white/20 hover:bg-white/[0.04]",
+          : "border-white/10 bg-white/[0.02] text-foreground hover:border-white/20 hover:bg-white/[0.04]"
       )}
     >
       <span className="text-xs font-semibold">{label}</span>
@@ -185,6 +154,7 @@ export default function EvaluationItemRow({
   onChange,
 }: Props) {
   const resolvedInputType = normalizeInputType(item);
+  const isRequired = item.is_required !== false;  
 
   const answered =
     typeof response?.response_check === "boolean" ||
@@ -192,21 +162,64 @@ export default function EvaluationItemRow({
       response?.response_score !== undefined) ||
     (response?.response_text ?? "").trim().length > 0;
 
-  const normalizedSelectOptions = (item.options_json ?? []).map(
-    (option, index) => {
-      const rawLabel = String(option.label ?? "").trim();
-      const rawValue = String(option.value ?? "").trim();
+  const parsedOptions = Array.isArray(item.options_json)
+    ? item.options_json
+    : [];
 
-      const safeLabel = rawLabel || `${index + 1}`;
-      const safeValue = rawValue || rawLabel || `option_${index + 1}`;
+  type ParsedOptionLike =
+    | EvaluationTemplateItemOption
+    | string
+    | number
+    | boolean
+    | null;
 
-      return {
-        label: safeLabel,
-        value: safeValue,
-        score: typeof option.score === "number" ? option.score : null,
-      };
-    },
-  );
+  const normalizedSelectOptions = parsedOptions.map((option, index) => {
+  const optionValue = option as ParsedOptionLike;
+  const isObject = typeof optionValue === "object" && optionValue !== null;
+
+  const rawLabel = isObject
+    ? String(
+        optionValue.label ??
+          optionValue.value ??
+          optionValue.score ??
+          "",
+      ).trim()
+    : String(optionValue ?? "").trim();
+
+  const rawValue = isObject
+    ? optionValue.value
+    : optionValue;
+
+  const optionScore =
+    isObject && typeof optionValue.score === "number"
+      ? optionValue.score
+      : null;
+
+  const safeLabel =
+    rawLabel === "true"
+      ? "Yes"
+      : rawLabel === "false"
+        ? "No"
+        : rawLabel || String(optionScore ?? index + 1);
+
+  const normalizedRawValue =
+    typeof rawValue === "string" ? rawValue.trim() : rawValue;
+
+  const safeValue =
+    normalizedRawValue !== null &&
+    normalizedRawValue !== undefined &&
+    normalizedRawValue !== ""
+      ? String(normalizedRawValue)
+      : optionScore !== null
+        ? String(optionScore)
+        : String(index + 1);
+
+  return {
+    label: safeLabel,
+    value: safeValue,
+    score: optionScore,
+  };
+});
 
   const useDotStyle =
     normalizedSelectOptions.length > 0 &&
@@ -215,10 +228,10 @@ export default function EvaluationItemRow({
 
   const InputIcon = getInputIcon(resolvedInputType);
   const statusLabel = answered
-    ? "Answered"
-    : item.is_required
-      ? "Required"
-      : "Optional";
+  ? "Answered"
+  : isRequired
+    ? "Required"
+    : "Optional";
 
   return (
     <div
@@ -226,9 +239,9 @@ export default function EvaluationItemRow({
         "rounded-3xl border p-5 transition-all duration-150",
         answered
           ? "border-white/10 bg-white/[0.03] shadow-[0_1px_0_rgba(255,255,255,0.03)_inset]"
-          : item.is_required
+          : isRequired
             ? "border-white/8 bg-white/[0.018]"
-            : "border-white/5 bg-white/[0.012]",
+            : "border-white/5 bg-white/[0.012]"
       )}
     >
       <div className="mb-5 flex items-start justify-between gap-4">
@@ -241,9 +254,9 @@ export default function EvaluationItemRow({
                 "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium",
                 answered
                   ? "border border-primary/15 bg-primary/8 text-primary"
-                  : item.is_required
+                  : isRequired
                     ? "border border-white/10 bg-white/[0.03] text-foreground/80"
-                    : "border border-white/8 bg-transparent text-muted-foreground",
+                    : "border border-white/8 bg-transparent text-muted-foreground"
               )}
             >
               {answered ? <CheckCircle2 className="h-3 w-3" /> : null}
@@ -265,7 +278,7 @@ export default function EvaluationItemRow({
           </span>
 
           <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
-            {item.is_required ? "Required item" : "Optional item"}
+            {isRequired ? "Required item" : "Optional item"}
           </span>
         </div>
       </div>
@@ -351,21 +364,24 @@ export default function EvaluationItemRow({
           {normalizedSelectOptions.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {normalizedSelectOptions.map((option, index) => {
-                const isActive = response?.response_text === option.value;
+                const isActive =
+                  String(response?.response_text ?? "") === String(option.value) ||
+                  (typeof response?.response_score === "number" &&
+                    typeof option.score === "number" &&
+                    response.response_score === option.score);
 
                 const handleSelect = () => {
                   onChange({
                     template_item_id: item.id,
                     response_check: null,
-                    response_score: isActive ? null : option.score,
-                    response_text: isActive ? null : option.value,
+                    response_score: isActive ? null : option.score ?? null,
+                    response_text: isActive ? null : String(option.value),
                   });
                 };
-
                 if (useDotStyle) {
                   return (
                     <DotChip
-                      key={`${item.id}-${index}-${option.value}`}
+                      key={`${item.id}-${index}-${String(option.value)}`}
                       active={isActive}
                       label={option.label}
                       onClick={handleSelect}
@@ -375,7 +391,7 @@ export default function EvaluationItemRow({
 
                 return (
                   <ChoiceChip
-                    key={`${item.id}-${index}-${option.value}`}
+                    key={`${item.id}-${index}-${String(option.value)}`}
                     active={isActive}
                     onClick={handleSelect}
                   >

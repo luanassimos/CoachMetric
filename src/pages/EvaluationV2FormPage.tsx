@@ -18,13 +18,16 @@ import EvaluationSection from "@/components/evaluations-v2/EvaluationSection";
 import EvaluationSummarySidebar from "@/components/evaluations-v2/EvaluationSummarySidebar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { resolveEffectiveInputType } from "@/lib/resolveEffectiveInputType";
 import {
   calculateEvaluationScores,
   filterItemsByCondition,
   sanitizeResponsesByTemplate,
   type EvaluationResponseInput,
   type EvaluationV2Context,
+  type EvaluationTemplateSection,
 } from "@/utils/evaluationV2";
+import { calculateEvaluationConfidence } from "@/utils/evaluationConfidence";
 
 function isAnswered(response?: EvaluationResponseInput) {
   if (!response) return false;
@@ -51,30 +54,6 @@ function getSectionRank(section: {
 
   if (index >= 0) return index;
   return 1000 + Number(section.display_order ?? 0);
-}
-
-function formatSectionLabel(moduleKey?: string | null) {
-  const key = String(moduleKey ?? "").toLowerCase().trim();
-
-  switch (key) {
-    case "pre_class":
-      return "Pre-Class";
-    case "first_timer_intro":
-      return "First Timer Intro";
-    case "intro":
-      return "Intro";
-    case "class":
-      return "Class";
-    case "post_workout":
-      return "Post-Workout";
-    default:
-      return key
-        ? key
-            .split("_")
-            .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-            .join(" ")
-        : "Section";
-  }
 }
 
 function getSaveStateLabel(
@@ -106,58 +85,98 @@ function SurfaceCard({
   );
 }
 
+type EvaluationSnapshotTemplate = {
+  id?: string;
+  sections: EvaluationTemplateSection[];
+};
+
 export default function EvaluationV2FormPage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
-  const { selectedStudioId, setSelectedStudioId, isReady } = useStudio();
+  const { selectedStudioId, setSelectedStudioId } = useStudio();
 
   const routeStudioId = searchParams.get("studio");
-const scopedStudio =
-  routeStudioId && routeStudioId !== "all"
-    ? routeStudioId
-    : selectedStudioId && selectedStudioId !== "all"
-      ? selectedStudioId
-      : null;
-      useEffect(() => {
-  if (!routeStudioId || routeStudioId === "all") return;
+  const scopedStudio =
+    routeStudioId && routeStudioId !== "all"
+      ? routeStudioId
+      : selectedStudioId && selectedStudioId !== "all"
+        ? selectedStudioId
+        : null;
 
-  if (routeStudioId !== selectedStudioId) {
-    setSelectedStudioId(routeStudioId as string | "all");
-  }
-}, [routeStudioId, selectedStudioId, setSelectedStudioId]);
+  useEffect(() => {
+    if (!routeStudioId || routeStudioId === "all") return;
+
+    if (routeStudioId !== selectedStudioId) {
+      setSelectedStudioId(routeStudioId as string | "all");
+    }
+  }, [routeStudioId, selectedStudioId, setSelectedStudioId]);
 
   const [saveState, setSaveState] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
 
   const evaluationQuery = useQuery({
-    enabled: Boolean(id),
-    queryKey: ["evaluation-v2", id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("evaluations")
-        .select("*")
-        .eq("id", id)
-        .single();
+  enabled: Boolean(id) && Boolean(scopedStudio),
+  queryKey: ["evaluation-v2", id, scopedStudio],
+  queryFn: async () => {
+    const { data, error } = await supabase
+      .from("evaluations")
+      .select("*")
+      .eq("id", id)
+      .eq("studio_id", scopedStudio)
+      .single();
 
-      if (error) throw error;
-      return data;
-    },
-  });
+    if (error) throw error;
+    return data;
+  },
+});
 
-  const templateQuery = useActiveEvaluationTemplate(selectedStudioId);
-  const responses = useEvaluationResponses(id);
+  const templateQuery = useActiveEvaluationTemplate();
+  const responses = useEvaluationResponses(id, scopedStudio);
 
-  const evaluationSnapshotTemplate = useMemo(() => {
+  const evaluationSnapshotTemplate = useMemo<EvaluationSnapshotTemplate | null>(() => {
     const snapshot = evaluationQuery.data?.template_snapshot;
 
     if (!snapshot || typeof snapshot !== "object") return null;
 
-    return snapshot as any;
+    const candidate = snapshot as Partial<EvaluationSnapshotTemplate>;
+    const sections = Array.isArray(candidate.sections) ? candidate.sections : [];
+    const hasRenderableItems = sections.some(
+      (section) => Array.isArray(section?.items) && section.items.length > 0,
+    );
+
+    if (!hasRenderableItems) return null;
+
+    return {
+      id: candidate.id,
+      sections,
+    };
   }, [evaluationQuery.data?.template_snapshot]);
 
-  const resolvedTemplate = evaluationSnapshotTemplate ?? templateQuery.data ?? null;
+  const resolvedTemplate = evaluationSnapshotTemplate || templateQuery.data || null;
+  useEffect(() => {
+    if (!resolvedTemplate) return;
+
+    const sectionCount = Array.isArray(resolvedTemplate.sections)
+      ? resolvedTemplate.sections.length
+      : 0;
+
+    const itemCount = Array.isArray(resolvedTemplate.sections)
+      ? resolvedTemplate.sections.reduce(
+          (total, section) =>
+            total + (Array.isArray(section?.items) ? section.items.length : 0),
+          0,
+        )
+      : 0;
+
+    console.log("Evaluation template resolved", {
+      source: evaluationSnapshotTemplate ? "snapshot" : "active-template",
+      sectionCount,
+      itemCount,
+      templateId: resolvedTemplate?.id,
+    });
+  }, [resolvedTemplate, evaluationSnapshotTemplate]);
 
   const [localResponses, setLocalResponses] = useState<
     Record<string, EvaluationResponseInput | undefined>
@@ -197,25 +216,44 @@ const scopedStudio =
     return () => window.clearTimeout(timeout);
   }, [saveState]);
 
-  const context: EvaluationV2Context = {
-    role: evaluationQuery.data?.coach_role ?? "lead",
-    shift: evaluationQuery.data?.shift_type ?? "am",
-    greenStar: Boolean(evaluationQuery.data?.green_star_present),
-  };
+  const context = useMemo<EvaluationV2Context>(
+    () => ({
+      role: evaluationQuery.data?.coach_role ?? "lead",
+      shift: evaluationQuery.data?.shift_type ?? "am",
+      greenStar: Boolean(evaluationQuery.data?.green_star_present),
+    }),
+    [
+      evaluationQuery.data?.coach_role,
+      evaluationQuery.data?.shift_type,
+      evaluationQuery.data?.green_star_present,
+    ],
+  );
 
   const visibleSections = useMemo(() => {
     const sections = resolvedTemplate?.sections ?? [];
 
     return [...sections]
       .sort((a, b) => getSectionRank(a) - getSectionRank(b))
+      .filter((section) => {
+        const moduleKey = String(section.module_key ?? "").toLowerCase().trim();
+
+        if (moduleKey === "first_timer_intro" && !context.greenStar) {
+          return false;
+        }
+
+        return true;
+      })
       .map((section) => ({
         ...section,
-        items: section.items.filter((item: any) =>
-          filterItemsByCondition(item, context),
-        ),
+        items: section.items
+          .filter((item) => filterItemsByCondition(item, context))
+          .map((item) => ({
+            ...item,
+            input_type: resolveEffectiveInputType(item),
+          })),
       }))
       .filter((section) => section.items.length > 0);
-  }, [resolvedTemplate?.sections, context.role, context.shift, context.greenStar]);
+  }, [resolvedTemplate?.sections, context]);
 
   const sanitizedLocalResponses = useMemo(() => {
     return sanitizeResponsesByTemplate({
@@ -226,18 +264,21 @@ const scopedStudio =
   }, [visibleSections, localResponses, context]);
 
   const totalItems = useMemo(() => {
-    return visibleSections.reduce(
-      (total, section) => total + section.items.length,
-      0,
-    );
+    return visibleSections.reduce((total, section) => {
+      return (
+        total +
+        section.items.filter((item) => item.is_required !== false).length
+      );
+    }, 0);
   }, [visibleSections]);
 
   const answeredItems = useMemo(() => {
     return visibleSections.reduce((total, section) => {
       return (
         total +
-        section.items.filter((item) => isAnswered(sanitizedLocalResponses[item.id]))
-          .length
+        section.items
+          .filter((item) => item.is_required !== false)
+          .filter((item) => isAnswered(sanitizedLocalResponses[item.id])).length
       );
     }, 0);
   }, [visibleSections, sanitizedLocalResponses]);
@@ -254,25 +295,13 @@ const scopedStudio =
     });
   }, [visibleSections, sanitizedLocalResponses, context]);
 
-  const sectionSnapshots = useMemo(() => {
-    return visibleSections.map((section) => {
-      const answered = section.items.filter((item) =>
-        isAnswered(sanitizedLocalResponses[item.id]),
-      ).length;
-      const total = section.items.length;
-      const complete = total > 0 && answered === total;
-      const percent = total > 0 ? Math.round((answered / total) * 100) : 0;
-
-      return {
-        id: section.id,
-        label: section.title || formatSectionLabel(section.module_key),
-        answered,
-        total,
-        complete,
-        percent,
-      };
+  const confidence = useMemo(() => {
+    return calculateEvaluationConfidence({
+      sections: visibleSections,
+      responsesByItemId: sanitizedLocalResponses,
+      context,
     });
-  }, [visibleSections, sanitizedLocalResponses]);
+  }, [visibleSections, sanitizedLocalResponses, context]);
 
   const persistScoreMutation = useMutation({
     mutationFn: async (
@@ -309,7 +338,7 @@ const scopedStudio =
               }
 
               const matchedOption = (item.options_json ?? []).find(
-                (option: any) =>
+                (option) =>
                   String(option.value) === String(response.response_text),
               );
 
@@ -332,8 +361,10 @@ const scopedStudio =
 
             if (item.input_type === "select") {
               const optionScores = (item.options_json ?? [])
-                .map((option: any) => option.score)
-                .filter((score: any): score is number => typeof score === "number");
+                .map((option) => option.score)
+                .filter(
+                  (score): score is number => typeof score === "number",
+                );
 
               if (optionScores.length === 0) return sum;
               return sum + Math.max(...optionScores) * weight;
@@ -393,9 +424,11 @@ const scopedStudio =
           final_score: finalScore,
           normalized_score_percent: normalizedScorePercent,
           responses_json: responsesJsonPayload,
-          template_snapshot: evaluationQuery.data?.template_snapshot ?? resolvedTemplate,
+          template_snapshot:
+            evaluationQuery.data?.template_snapshot ?? resolvedTemplate,
         })
-        .eq("id", id);
+        .eq("id", id)
+.eq("studio_id", scopedStudio);
 
       if (error) throw error;
     },
@@ -418,10 +451,12 @@ const scopedStudio =
       setSaveState("saved");
       toast.success("Progress saved");
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       console.error("saveProgressMutation error", error);
       setSaveState("error");
-      toast.error(error?.message ?? "Failed to save progress");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to save progress",
+      );
     },
   });
 
@@ -453,7 +488,9 @@ const scopedStudio =
     return (
       <div className="mx-auto max-w-7xl p-6">
         <SurfaceCard className="border-red-500/20 bg-red-500/5 p-8">
-          <div className="text-sm text-red-300">Failed to load Evaluation V2.</div>
+          <div className="text-sm text-red-300">
+            Failed to load Evaluation V2.
+          </div>
         </SurfaceCard>
       </div>
     );
@@ -464,7 +501,13 @@ const scopedStudio =
       <div className="flex flex-col gap-4">
         <button
           type="button"
-          onClick={() => navigate(`/evaluations/new?studio=${scopedStudio}`)}
+          onClick={() =>
+  navigate(
+    scopedStudio
+      ? `/evaluations/${id}?studio=${scopedStudio}`
+      : `/evaluations/${id}`,
+  )
+}
           className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeft size={16} />
@@ -591,6 +634,24 @@ const scopedStudio =
                 </div>
               </div>
 
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span
+                  className={cn(
+                    "rounded-full border px-2.5 py-1 text-[11px] font-medium",
+                    confidence.tone === "positive"
+                      ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+                      : confidence.tone === "warning"
+                        ? "border-amber-500/20 bg-amber-500/10 text-amber-300"
+                        : "border-red-500/20 bg-red-500/10 text-red-300",
+                  )}
+                >
+                  Confidence {confidence.label}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {confidence.summary}
+                </span>
+              </div>
+
               <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-white/5">
                 <div
                   className="h-full rounded-full bg-primary/50 transition-all duration-300"
@@ -617,13 +678,13 @@ const scopedStudio =
                 </div>
 
                 <div className="inline-flex w-fit items-center rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-muted-foreground">
-                  {sectionSnapshots.filter((section) => section.complete).length}/
-                  {sectionSnapshots.length} sections complete
+                  {confidence.sectionSnapshots.filter((section) => section.complete).length}/
+                  {confidence.sectionSnapshots.length} sections complete
                 </div>
               </div>
 
               <div className="flex flex-wrap gap-2">
-                {sectionSnapshots.map((section) => (
+                {confidence.sectionSnapshots.map((section) => (
                   <div
                     key={section.id}
                     className={cn(
@@ -715,6 +776,7 @@ const scopedStudio =
           scores={scores}
           totalItems={totalItems}
           answeredItems={answeredItems}
+          confidence={confidence}
           saving={saving}
           saveState={saveState}
           onSaveProgress={async () => {

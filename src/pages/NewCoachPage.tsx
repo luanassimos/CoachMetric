@@ -7,6 +7,7 @@ import { useStudios } from "@/hooks/useStudios";
 import { useStudio } from "@/contexts/StudioContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import type { Studio } from "@/lib/types";
 import {
   Select,
   SelectContent,
@@ -78,10 +79,10 @@ export default function NewCoachPage() {
         role_title: roleTitle,
       });
 
-      navigate(`/coaches?studio=${effectiveScope}`);
-    } catch (err: any) {
+      navigate(`/coaches?studio=${studioId}`);
+    } catch (err: unknown) {
       console.error("Failed to create coach:", err);
-      setError(err.message || "Failed to create coach.");
+      setError(err instanceof Error ? err.message : "Failed to create coach.");
     } finally {
       setSaving(false);
     }
@@ -91,7 +92,7 @@ export default function NewCoachPage() {
     <div className="mx-auto w-full max-w-3xl min-w-0 space-y-6">
       <button
         type="button"
-        onClick={() => navigate(`/coaches?studio=${effectiveScope}`)}
+        onClick={() => navigate(`/coaches?studio=${studioId || effectiveScope}`)}
         className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" />
@@ -186,7 +187,7 @@ export default function NewCoachPage() {
                 <SelectValue placeholder="Select a studio" />
               </SelectTrigger>
               <SelectContent>
-                {studios.map((studio: any) => (
+                {studios.map((studio: Studio) => (
                   <SelectItem key={studio.id} value={studio.id}>
                     {studio.name}
                   </SelectItem>

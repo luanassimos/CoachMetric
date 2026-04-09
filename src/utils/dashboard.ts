@@ -12,7 +12,7 @@ import { calculateCoachRisk } from "@/utils/risk";
 type CoachWithCycle = Coach & {
   evaluationCycle?: {
     evaluation_status?: "overdue" | "due_soon" | "on_track";
-    [key: string]: any;
+    [key: string]: unknown;
   } | null;
 };
 
@@ -27,7 +27,6 @@ export type MultiStudioDashboardStudioRow = {
   averageScore: number;
   trend: "improving" | "stable" | "declining";
   evaluationCount: number;
-  
   coachCount: number;
   overdueCount: number;
   dueSoonCount: number;
@@ -73,9 +72,29 @@ function round(value: number) {
   return Math.round(value);
 }
 
+function groupByKey<TItem, TKey extends string>(
+  items: TItem[],
+  getKey: (item: TItem) => TKey,
+) {
+  const map = new Map<TKey, TItem[]>();
+
+  for (const item of items) {
+    const key = getKey(item);
+    const existing = map.get(key);
+
+    if (existing) {
+      existing.push(item);
+    } else {
+      map.set(key, [item]);
+    }
+  }
+
+  return map;
+}
+
 function getTeamTrendDirection(
   averageRecentScore: number,
-  averagePreviousScore: number
+  averagePreviousScore: number,
 ): "improving" | "stable" | "declining" {
   const delta = averageRecentScore - averagePreviousScore;
 
@@ -92,16 +111,16 @@ function calculateAverageScoreFromEvaluations(evaluations: Evaluation[]) {
       return (
         sum +
         Number(
-          evaluation.normalized_score_percent ?? evaluation.final_score ?? 0
+          evaluation.normalized_score_percent ?? evaluation.final_score ?? 0,
         )
       );
-    }, 0) / evaluations.length
+    }, 0) / evaluations.length,
   );
 }
 
 function getCoachRecentAndPreviousScores(coachEvaluations: Evaluation[]) {
   const sorted = [...coachEvaluations].sort((a, b) =>
-    String(b.class_date ?? "").localeCompare(String(a.class_date ?? ""))
+    String(b.class_date ?? "").localeCompare(String(a.class_date ?? "")),
   );
 
   const recentScore =
@@ -118,7 +137,7 @@ function getCoachRecentAndPreviousScores(coachEvaluations: Evaluation[]) {
 }
 
 function calculateOnboardingOverviewFromCoaches(coaches: Coach[]) {
-  const coachesWithOnboarding = coaches.filter((coach: any) => coach.onboarding);
+  const coachesWithOnboarding = coaches.filter((coach) => coach.onboarding);
   const total = coachesWithOnboarding.length;
 
   if (total === 0) {
@@ -138,7 +157,7 @@ function calculateOnboardingOverviewFromCoaches(coaches: Coach[]) {
   let completed = 0;
   let stuck = 0;
 
-  coachesWithOnboarding.forEach((coach: any) => {
+  coachesWithOnboarding.forEach((coach) => {
     const onboarding = (coach.onboarding ?? {}) as OnboardingLike;
     const status = onboarding.status ?? "not_started";
     const progress = Number(onboarding.progress ?? 0);
@@ -176,34 +195,42 @@ export function prepareMultiStudioDashboardData(
   cycles: Array<{
     coach_id: string;
     evaluation_status?: "overdue" | "due_soon" | "on_track" | string | null;
-  }>
+  }>,
 ): MultiStudioDashboardData {
   const cycleMap = new Map(cycles.map((cycle) => [cycle.coach_id, cycle]));
 
+  const activeCoaches = coaches.filter((coach) => coach.status === "active");
+  const coachesByStudioId = groupByKey(
+    activeCoaches.filter((coach) => Boolean(coach.studio_id)),
+    (coach) => String(coach.studio_id),
+  );
+  const evaluationsByCoachId = groupByKey(
+    evaluations.filter((evaluation) => Boolean(evaluation.coach_id)),
+    (evaluation) => String(evaluation.coach_id),
+  );
+  const notesByCoachId = groupByKey(
+    coachNotes.filter((note) => Boolean(note.coach_id)),
+    (note) => String(note.coach_id),
+  );
+
   const studioRows: MultiStudioDashboardStudioRow[] = studios
     .map((studio) => {
-      const studioCoaches = coaches.filter(
-        (coach: any) => coach.studio_id === studio.id && coach.status === "active"
-      );
-
+      const studioCoaches = coachesByStudioId.get(studio.id) ?? [];
       const studioCoachIds = new Set(studioCoaches.map((coach) => coach.id));
 
       const studioEvaluations = evaluations.filter((evaluation) =>
-        studioCoachIds.has(evaluation.coach_id)
+        studioCoachIds.has(evaluation.coach_id),
       );
 
       const metricsMap = computeAllCoachMetrics(
         studioCoaches as CoachWithCycle[],
-        studioEvaluations
+        studioEvaluations,
       );
 
       const coachSummaries = studioCoaches.map((coach) => {
-        const coachEvaluations = studioEvaluations.filter(
-          (evaluation) => evaluation.coach_id === coach.id
-        );
-
+        const coachEvaluations = evaluationsByCoachId.get(coach.id) ?? [];
         const metrics = metricsMap.get(coach.id);
-        const notes = coachNotes.filter((note) => note.coach_id === coach.id);
+        const notes = notesByCoachId.get(coach.id) ?? [];
         const risk = metrics ? calculateCoachRisk(metrics, notes) : null;
 
         const { recentScore, previousScore } =
@@ -227,43 +254,46 @@ export function prepareMultiStudioDashboardData(
         .filter((value): value is number => value !== null);
 
       const averageRecentScore = recentScores.length
-        ? round(recentScores.reduce((s, v) => s + v, 0) / recentScores.length)
+        ? round(recentScores.reduce((sum, value) => sum + value, 0) / recentScores.length)
         : 0;
 
       const averagePreviousScore = previousScores.length
-        ? round(previousScores.reduce((s, v) => s + v, 0) / previousScores.length)
+        ? round(
+            previousScores.reduce((sum, value) => sum + value, 0) /
+              previousScores.length,
+          )
         : 0;
 
       const onboardingOverview = calculateOnboardingOverviewFromCoaches(
-        studioCoaches
+        studioCoaches,
       );
 
       const overdueCount = coachSummaries.filter(
-        (item) => item.cycle?.evaluation_status === "overdue"
+        (item) => item.cycle?.evaluation_status === "overdue",
       ).length;
 
       const dueSoonCount = coachSummaries.filter(
-        (item) => item.cycle?.evaluation_status === "due_soon"
+        (item) => item.cycle?.evaluation_status === "due_soon",
       ).length;
 
       const onTrackCount = coachSummaries.filter(
-        (item) => item.cycle?.evaluation_status === "on_track"
+        (item) => item.cycle?.evaluation_status === "on_track",
       ).length;
 
       const noEvaluationCount = coachSummaries.filter(
-        (item) => !item.cycle?.evaluation_status
+        (item) => !item.cycle?.evaluation_status,
       ).length;
 
       const highRiskCount = coachSummaries.filter(
-        (item) => item.risk?.level === "High"
+        (item) => item.risk?.level === "High",
       ).length;
 
       const moderateRiskCount = coachSummaries.filter(
-        (item) => item.risk?.level === "Moderate"
+        (item) => item.risk?.level === "Moderate",
       ).length;
 
       const lowRiskCount = coachSummaries.filter(
-        (item) => item.risk?.level === "Low"
+        (item) => item.risk?.level === "Low",
       ).length;
 
       return {
@@ -286,13 +316,14 @@ export function prepareMultiStudioDashboardData(
         moderateRiskCount,
         lowRiskCount,
         delta: averageRecentScore - averagePreviousScore,
+        rank: 0,
       };
     })
     .sort((a, b) => b.averageScore - a.averageScore)
-.map((studio, index) => ({
-  ...studio,
-  rank: index + 1,
-}));
+    .map((studio, index) => ({
+      ...studio,
+      rank: index + 1,
+    }));
 
   const summary = studioRows.reduce(
     (acc, studio) => {
@@ -324,19 +355,14 @@ export function prepareMultiStudioDashboardData(
       lowRiskCount: 0,
       averageScoreWeightedSum: 0,
       onboardingProgressWeightedSum: 0,
-    }
+    },
   );
 
   const topStudio = studioRows[0] ?? null;
   const worstStudio = studioRows[studioRows.length - 1] ?? null;
 
-  const decliningStudios = studioRows.filter(
-    (s) => s.trend === "declining"
-  );
-
-  const improvingStudios = studioRows.filter(
-    (s) => s.trend === "improving"
-  );
+  const decliningStudios = studioRows.filter((studio) => studio.trend === "declining");
+  const improvingStudios = studioRows.filter((studio) => studio.trend === "improving");
 
   return {
     studios: studioRows,
@@ -368,55 +394,68 @@ export function prepareMultiStudioDashboardData(
     },
   };
 }
+
 export function prepareDashboardData(
   coaches: Coach[],
   evaluations: Evaluation[],
-  developmentPlans: DevelopmentPlan[]
+  developmentPlans: DevelopmentPlan[],
 ): DashboardData {
   const activeCoaches = (coaches as CoachWithCycle[]).filter(
-    (coach) => coach.status === "active"
+    (coach) => coach.status === "active",
   );
 
   const metricsMap = computeAllCoachMetrics(activeCoaches, evaluations);
   const teamAttributes = calculateCoachAttributes(evaluations);
+  const evaluationsByCoachId = groupByKey(
+    evaluations.filter((evaluation) => Boolean(evaluation.coach_id)),
+    (evaluation) => String(evaluation.coach_id),
+  );
+  const notesByCoachId = groupByKey(
+    coachNotes.filter((note) => Boolean(note.coach_id)),
+    (note) => String(note.coach_id),
+  );
 
   const coachSummaries = activeCoaches.map((coach) => {
-    const metrics = metricsMap.get(coach.id);
-    const notes = coachNotes.filter((note) => note.coach_id === coach.id);
-    const risk = metrics ? calculateCoachRisk(metrics, notes) : null;
+  const metrics = metricsMap.get(coach.id);
+  const notes = notesByCoachId.get(coach.id) ?? [];
+  const risk = metrics ? calculateCoachRisk(metrics, notes) : null;
+  const coachEvaluations = evaluationsByCoachId.get(coach.id) ?? [];
 
-    const coachEvaluations = evaluations.filter(
-      (evaluation) => evaluation.coach_id === coach.id
-    );
+  return {
+    coach,
+    metrics,
+    risk,
+    avg: metrics?.average_score ?? 0,
+    trend: metrics?.trend ?? "stable",
+    evaluationCount: coachEvaluations.length,
+  };
+});
 
-    return {
-      coach,
-      metrics,
-      risk,
-      avg: metrics?.average_score ?? 0,
-      trend: metrics?.trend ?? "stable",
-      evaluationCount: coachEvaluations.length,
-    };
-  });
+const coachNameById = new Map(
+  activeCoaches.map((coach) => [
+    coach.id,
+    `${coach.first_name ?? ""} ${coach.last_name ?? ""}`.trim() || "Unknown Coach",
+  ]),
+);
 
   const team_average_score =
     coachSummaries.length > 0
       ? round(
           coachSummaries.reduce((sum, item) => sum + item.avg, 0) /
-            coachSummaries.length
+            coachSummaries.length,
         )
       : 0;
 
   const high_risk_count = coachSummaries.filter(
-    (item) => item.risk?.level === "High"
+    (item) => item.risk?.level === "High",
   ).length;
 
   const moderate_risk_count = coachSummaries.filter(
-    (item) => item.risk?.level === "Moderate"
+    (item) => item.risk?.level === "Moderate",
   ).length;
 
   const low_risk_count = coachSummaries.filter(
-    (item) => item.risk?.level === "Low"
+    (item) => item.risk?.level === "Low",
   ).length;
 
   return {
@@ -429,7 +468,16 @@ export function prepareDashboardData(
     low_risk_count,
     top_performing_coaches: [],
     coaches_needing_attention: [],
-    recent_evaluations: [],
+    recent_evaluations: evaluations
+  .filter((evaluation) => Boolean(evaluation.coach_id))
+  .sort((a, b) =>
+    String(b.class_date ?? "").localeCompare(String(a.class_date ?? ""))
+  )
+  .slice(0, 5)
+  .map((evaluation) => ({
+    ...evaluation,
+    coach_name: coachNameById.get(String(evaluation.coach_id)) ?? "Unknown Coach",
+  })),
     declining_coaches: [],
     improving_coaches: [],
     performance_band_counts: {
@@ -465,6 +513,7 @@ export function prepareDashboardData(
     },
   };
 }
+
 export function getRiskColor(level: "High" | "Moderate" | "Low") {
   if (level === "High") return "text-red-400";
   if (level === "Moderate") return "text-yellow-400";

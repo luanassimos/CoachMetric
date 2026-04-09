@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   Users,
@@ -6,12 +6,19 @@ import {
   GraduationCap,
   Settings,
   Building2,
+  Sparkles,
+  LogOut,
+  Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStudio } from "@/contexts/StudioContext";
+import { useAuth } from "@/contexts/AuthContext";
+import ThemeToggle from "@/components/ui/ThemeToggle";
+import { canAccessDevTools, getGlobalRoleLabel } from "@/lib/devAccess";
 
 const navItems = [
-  { to: "/", icon: LayoutDashboard, label: "Dashboard" },
+  { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
+  { to: "/actions", icon: Sparkles, label: "Action Center" },
   { to: "/coaches", icon: Users, label: "Coaches" },
   { to: "/evaluations/new", icon: ClipboardCheck, label: "New Evaluation" },
   { to: "/training", icon: GraduationCap, label: "Training" },
@@ -67,9 +74,24 @@ function SidebarNavItem({
 
 export default function AppSidebar({ onNavigate }: Props) {
   const location = useLocation();
+  const navigate = useNavigate();
   const { selectedStudioId } = useStudio();
+  const { user, globalRole, signOut } = useAuth();
 
   const studioParam = selectedStudioId ? `?studio=${selectedStudioId}` : "";
+
+  async function handleLogout() {
+    try {
+      await signOut();
+      onNavigate?.();
+      navigate("/login", { replace: true });
+    } catch (error) {
+      console.error("Failed to sign out:", error);
+    }
+  }
+
+  const roleLabel = getGlobalRoleLabel(globalRole);
+  const isDev = canAccessDevTools(globalRole);
 
   return (
     <aside className="flex h-full w-full flex-col border-r border-white/8 bg-sidebar md:fixed md:bottom-0 md:left-0 md:top-0 md:z-50 md:w-60">
@@ -89,8 +111,8 @@ export default function AppSidebar({ onNavigate }: Props) {
         <div className="space-y-1">
           {navItems.map((item) => {
             const isActive =
-              item.to === "/"
-                ? location.pathname === "/"
+              item.to === "/dashboard"
+                ? location.pathname === "/dashboard"
                 : location.pathname.startsWith(item.to);
 
             return (
@@ -104,6 +126,17 @@ export default function AppSidebar({ onNavigate }: Props) {
               />
             );
           })}
+
+          {/* DEV PANEL */}
+          {isDev && (
+            <SidebarNavItem
+              to="/dev"
+              label="Dev Panel"
+              icon={Wrench}
+              isActive={location.pathname.startsWith("/dev")}
+              onNavigate={onNavigate}
+            />
+          )}
         </div>
       </nav>
 
@@ -115,6 +148,30 @@ export default function AppSidebar({ onNavigate }: Props) {
           isActive={location.pathname.startsWith("/settings")}
           onNavigate={onNavigate}
         />
+
+        <div className="mt-3 rounded-2xl border border-white/8 bg-white/[0.03] p-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium text-sidebar-accent-foreground">
+              {user?.email ?? "Signed in"}
+            </p>
+            <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-sidebar-foreground/55">
+              {roleLabel}
+            </p>
+          </div>
+
+          <div className="mt-3 flex items-center gap-2">
+            <ThemeToggle className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-sidebar-foreground transition hover:bg-white/[0.08] hover:text-sidebar-accent-foreground" />
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-sm font-medium text-sidebar-foreground transition hover:bg-white/[0.08] hover:text-sidebar-accent-foreground"
+            >
+              <LogOut className="h-4 w-4" />
+              Logout
+            </button>
+          </div>
+        </div>
       </div>
     </aside>
   );

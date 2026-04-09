@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
+import { useStudio } from "@/contexts/StudioContext";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { Studio } from "@/lib/types";
 
 function SurfaceCard({
   children,
@@ -39,7 +41,7 @@ export default function EditCoachPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { studios, loading: studiosLoading } = useStudios();
-
+const { selectedStudioId } = useStudio();
   const routeStudioId = searchParams.get("studio") || "all";
 
   const [loading, setLoading] = useState(true);
@@ -67,7 +69,7 @@ export default function EditCoachPage() {
 
       try {
         setLoading(true);
-        const data = await fetchCoachById(id);
+        const data = await fetchCoachById(id, selectedStudioId);
 
         setStudioId(data.studio_id || "");
         setFirstName(data.first_name || "");
@@ -84,7 +86,7 @@ export default function EditCoachPage() {
     }
 
     loadCoach();
-  }, [id]);
+  }, [id, selectedStudioId]);
 
   async function handleSave() {
     if (!id) return;
@@ -96,7 +98,7 @@ export default function EditCoachPage() {
     try {
       setSaving(true);
 
-      await updateCoach(id, {
+      await updateCoach(id, selectedStudioId, {
         studio_id: studioId,
         first_name: firstName,
         last_name: lastName,
@@ -107,9 +109,9 @@ export default function EditCoachPage() {
       });
 
       navigate(`/coaches/${id}?studio=${routeStudioId}`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to update coach:", error);
-      alert(error.message || "Failed to save coach.");
+      alert(error instanceof Error ? error.message : "Failed to save coach.");
     } finally {
       setSaving(false);
     }
@@ -122,12 +124,12 @@ export default function EditCoachPage() {
     if (!confirmed) return;
 
     try {
-      await deleteCoach(id);
+      await deleteCoach(id, selectedStudioId);
       navigate(backToCoachesHref);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to delete coach:", error);
       alert(
-        error.message ||
+        (error instanceof Error ? error.message : null) ||
           "Failed to delete coach. This may be blocked by related evaluations or training records.",
       );
     }
@@ -202,7 +204,7 @@ export default function EditCoachPage() {
                 <SelectValue placeholder="Select studio" />
               </SelectTrigger>
               <SelectContent>
-                {studios.map((studio: any) => (
+                {studios.map((studio: Studio) => (
                   <SelectItem key={studio.id} value={studio.id}>
                     {studio.name}
                   </SelectItem>

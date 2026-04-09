@@ -55,11 +55,15 @@ export default function EvaluationSection({
   responsesByItemId,
   onChange,
 }: Props) {
-  const answeredCount = section.items.filter((item) =>
+  const requiredItems = section.items.filter(
+    (item) => item.is_required !== false,
+  );
+
+  const answeredCount = requiredItems.filter((item) =>
     isAnswered(responsesByItemId[item.id]),
   ).length;
 
-  const totalCount = section.items.length;
+  const totalCount = requiredItems.length;
   const progressPercent =
     totalCount > 0 ? Math.round((answeredCount / totalCount) * 100) : 0;
 
@@ -110,8 +114,8 @@ export default function EvaluationSection({
 
                   <span>
                     {remainingCount === 0
-                      ? "All items answered"
-                      : `${remainingCount} item${remainingCount === 1 ? "" : "s"} remaining`}
+                      ? "All required items answered"
+                      : `${remainingCount} required item${remainingCount === 1 ? "" : "s"} remaining`}
                   </span>
                 </div>
               </div>
@@ -121,7 +125,7 @@ export default function EvaluationSection({
                   {answeredCount}/{totalCount}
                 </div>
                 <div className="mt-1 text-[11px] text-muted-foreground">
-                  answered
+                  required answered
                 </div>
               </div>
             </div>
