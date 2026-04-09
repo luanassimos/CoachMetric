@@ -1,8 +1,122 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
 
 import homepageDocument from "@/content/coachmetric-homepage.html?raw";
 import { useAuth } from "@/contexts/AuthContext";
+
+const contactEmail = "support@coachmetric.io";
+
+type BillingInterval = "monthly" | "annual";
+
+type PricingPlan = {
+  id: "starter" | "growth" | "enterprise";
+  cardClassName: string;
+  badge?: string;
+  name: string;
+  subtitle: string;
+  features: string[];
+  ctaLabel: string;
+  ctaClassName: "btn-ghost" | "btn-red";
+  contactHref?: string;
+  monthly?: {
+    price: string;
+    suffix: string;
+    checkoutHref: string;
+  };
+  annual?: {
+    price: string;
+    suffix: string;
+    helper: string;
+    checkoutHref: string;
+  };
+};
+
+const stripeLinks = {
+  starter: {
+    monthly: "https://buy.stripe.com/3cI9AVeAmgdt73M2ry3F607",
+    annual: "https://buy.stripe.com/eVq8wRgIu0evafY3vC3F608",
+  },
+  growth: {
+    monthly: "https://buy.stripe.com/bJe00lgIu0ev87QaY43F605",
+    annual: "https://buy.stripe.com/cNi14p1NA7GX2Nw7LS3F609",
+  },
+} as const;
+
+const pricingPlans: PricingPlan[] = [
+  {
+    id: "starter",
+    cardClassName: "starter",
+    name: "Starter",
+    subtitle: "For small operators establishing baseline structure",
+    features: [
+      "Up to 3 studio locations",
+      "Standard evaluation templates",
+      "Basic coach roster",
+      "Manual evaluations only",
+      "Limited action visibility",
+      "30-day data history",
+    ],
+    ctaLabel: "Get started",
+    ctaClassName: "btn-ghost",
+    monthly: {
+      price: "$99",
+      suffix: "/ studio / mo",
+      checkoutHref: stripeLinks.starter.monthly,
+    },
+    annual: {
+      price: "$79",
+      suffix: "/ studio / mo",
+      helper: "billed annually at $948 per studio",
+      checkoutHref: stripeLinks.starter.annual,
+    },
+  },
+  {
+    id: "growth",
+    cardClassName: "growth",
+    badge: "Most Popular",
+    name: "Growth",
+    subtitle: "For multi-location operators needing real operational control",
+    features: [
+      "4&#8211;15 studio locations",
+      "Custom evaluation builder",
+      "Full Action Center access",
+      "Automated risk flags",
+      "Performance trend visibility",
+      "Coach-level insights",
+      "Unlimited data history",
+    ],
+    ctaLabel: "Get started",
+    ctaClassName: "btn-red",
+    monthly: {
+      price: "$249",
+      suffix: "/ studio / mo",
+      checkoutHref: stripeLinks.growth.monthly,
+    },
+    annual: {
+      price: "$199",
+      suffix: "/ studio / mo",
+      helper: "billed annually at $2,388 per studio",
+      checkoutHref: stripeLinks.growth.annual,
+    },
+  },
+  {
+    id: "enterprise",
+    cardClassName: "enterprise",
+    name: "Enterprise",
+    subtitle: "For regional networks and franchise operations",
+    features: [
+      "16+ studio locations",
+      "Full regional hierarchy & rollups",
+      "Advanced role permissions",
+      "API access & integrations",
+      "Dedicated success manager",
+      "Onboarding & rollout support",
+    ],
+    ctaLabel: "Talk to sales",
+    ctaClassName: "btn-ghost",
+    contactHref: `mailto:${contactEmail}?subject=CoachMetric%20Enterprise`,
+  },
+] as const;
 
 const pricingSectionStyles = `
   .pricing-section {
@@ -19,6 +133,40 @@ const pricingSectionStyles = `
     max-width: 760px;
     margin: 0 auto 44px;
     text-align: center;
+  }
+
+  .pricing-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 28px auto 0;
+    padding: 6px;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 999px;
+    background: rgba(255,255,255,0.03);
+  }
+
+  .pricing-toggle-button {
+    border: none;
+    background: transparent;
+    color: var(--text-2);
+    border-radius: 999px;
+    padding: 10px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    transition: all 0.18s ease;
+  }
+
+  .pricing-toggle-button:hover {
+    color: var(--text-1);
+  }
+
+  .pricing-toggle-button.is-active {
+    background: rgba(255,255,255,0.08);
+    color: #fff;
+    box-shadow: 0 10px 24px rgba(0,0,0,0.16);
   }
 
   .pricing-microcopy {
@@ -133,6 +281,13 @@ const pricingSectionStyles = `
     color: var(--text-2);
   }
 
+  .pricing-helper {
+    margin-top: 10px;
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--text-3);
+  }
+
   .pricing-features {
     list-style: none;
     display: flex;
@@ -225,10 +380,70 @@ const pricingSectionStyles = `
     .pricing-price {
       font-size: 42px;
     }
+
+    .pricing-toggle {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .pricing-toggle-button {
+      flex: 1;
+    }
   }
 `;
 
-const pricingSectionMarkup = `
+function renderPricingSectionMarkup(billingInterval: BillingInterval) {
+  const starterInterval = billingInterval === "annual" ? pricingPlans[0].annual : pricingPlans[0].monthly;
+  const growthInterval = billingInterval === "annual" ? pricingPlans[1].annual : pricingPlans[1].monthly;
+  const intervalByPlanId = {
+    starter: starterInterval,
+    growth: growthInterval,
+  } as const;
+
+  const pricingCardsMarkup = pricingPlans
+    .map((plan) => {
+      const activeInterval =
+        plan.id === "enterprise" ? null : intervalByPlanId[plan.id];
+
+      const helperMarkup =
+        billingInterval === "annual" && activeInterval?.helper
+          ? `<div class="pricing-helper">${activeInterval.helper}</div>`
+          : "";
+
+      const ctaHref = activeInterval?.checkoutHref ?? plan.contactHref ?? "#";
+
+      return `
+        <article class="pricing-card ${plan.cardClassName}" role="listitem">
+          ${plan.badge ? `<div class="pricing-badge">${plan.badge}</div>` : ""}
+          <div class="pricing-plan">${plan.name}</div>
+          <p class="pricing-subtitle">${plan.subtitle}</p>
+          <div class="pricing-price-block">
+            ${
+              activeInterval
+                ? `
+            <div class="pricing-price-row">
+              <div class="pricing-price">${activeInterval.price}</div>
+              <div class="pricing-price-suffix">${activeInterval.suffix}</div>
+            </div>
+            ${helperMarkup}
+            `
+                : `
+            <div class="pricing-price-row">
+              <div class="pricing-price">Custom</div>
+            </div>
+            `
+            }
+          </div>
+          <ul class="pricing-features" role="list">
+            ${plan.features.map((feature) => `<li>${feature}</li>`).join("")}
+          </ul>
+          <a href="${ctaHref}" class="${plan.ctaClassName}">${plan.ctaLabel}</a>
+        </article>
+      `;
+    })
+    .join("");
+
+  return `
   <section class="pricing-section" id="pricing" aria-labelledby="pricing-headline">
     <div class="pricing-wrap">
       <div class="pricing-header">
@@ -241,72 +456,29 @@ const pricingSectionMarkup = `
         <p class="section-body" style="font-size: 16px; margin: 0 auto;">
           Choose the level of control your operation needs, from baseline structure to regional performance oversight.
         </p>
+        <div class="pricing-toggle" role="tablist" aria-label="Billing interval">
+          <button
+            type="button"
+            class="pricing-toggle-button ${billingInterval === "monthly" ? "is-active" : ""}"
+            data-billing-toggle="monthly"
+            aria-selected="${billingInterval === "monthly"}"
+          >
+            Monthly
+          </button>
+          <button
+            type="button"
+            class="pricing-toggle-button ${billingInterval === "annual" ? "is-active" : ""}"
+            data-billing-toggle="annual"
+            aria-selected="${billingInterval === "annual"}"
+          >
+            Annual
+          </button>
+        </div>
         <p class="pricing-microcopy">Billed per studio location. Unlimited coaches. Unlimited evaluations.</p>
       </div>
 
       <div class="pricing-grid" role="list">
-        <article class="pricing-card starter" role="listitem">
-          <div class="pricing-plan">Starter</div>
-          <p class="pricing-subtitle">For small operators establishing baseline structure</p>
-          <div class="pricing-price-block">
-            <div class="pricing-price-row">
-              <div class="pricing-price">$99</div>
-              <div class="pricing-price-suffix">/ studio / mo</div>
-            </div>
-            <div class="pricing-annual">$79 annual</div>
-          </div>
-          <ul class="pricing-features" role="list">
-            <li>Up to 3 studio locations</li>
-            <li>Standard evaluation templates</li>
-            <li>Basic coach roster</li>
-            <li>Manual evaluations only</li>
-            <li>Limited action visibility</li>
-            <li>30-day data history</li>
-          </ul>
-          <a href="mailto:coachmetric.gmail.com?subject=CoachMetric%20Starter%20trial" class="btn-ghost">Start free trial</a>
-        </article>
-
-        <article class="pricing-card growth" role="listitem">
-          <div class="pricing-badge">Most Popular</div>
-          <div class="pricing-plan">Growth</div>
-          <p class="pricing-subtitle">For multi-location operators needing real operational control</p>
-          <div class="pricing-price-block">
-            <div class="pricing-price-row">
-              <div class="pricing-price">$249</div>
-              <div class="pricing-price-suffix">/ studio / mo</div>
-            </div>
-            <div class="pricing-annual">$199 annual</div>
-          </div>
-          <ul class="pricing-features" role="list">
-            <li>4&#8211;15 studio locations</li>
-            <li>Custom evaluation builder</li>
-            <li>Full Action Center access</li>
-            <li>Automated risk flags</li>
-            <li>Performance trend visibility</li>
-            <li>Coach-level insights</li>
-            <li>Unlimited data history</li>
-          </ul>
-          <a href="mailto:coachmetric.gmail.com?subject=CoachMetric%207-day%20trial" class="btn-red">Start 7-day trial</a>
-        </article>
-
-        <article class="pricing-card enterprise" role="listitem">
-          <div class="pricing-plan">Enterprise</div>
-          <p class="pricing-subtitle">For regional networks and franchise operations</p>
-          <div class="pricing-price-block">
-            <div class="pricing-price-row">
-              <div class="pricing-price">Custom</div>
-            </div>
-          </div>
-          <ul class="pricing-features" role="list">
-            <li>16+ studio locations</li>
-            <li>Full regional hierarchy & rollups</li>
-            <li>Advanced role permissions</li>
-            <li>API access & integrations</li>
-            <li>Dedicated success manager</li>
-            <li>Onboarding & rollout support</li>
-          </ul>
-          <a href="mailto:coachmetric.gmail.com?subject=CoachMetric%20Enterprise" class="btn-ghost">Talk to sales</a>
-        </article>
+        ${pricingCardsMarkup}
       </div>
 
       <div class="pricing-support">
@@ -314,11 +486,12 @@ const pricingSectionMarkup = `
           <h3>Custom support for large operators.</h3>
           <p>Enterprise is built for regional networks that need hierarchy, integration support, and rollout guidance across a larger footprint.</p>
         </div>
-        <a href="mailto:coachmetric.gmail.com?subject=CoachMetric%20Enterprise" class="btn-red">Contact sales</a>
+        <a href="mailto:${contactEmail}?subject=CoachMetric%20Enterprise" class="btn-red">Contact sales</a>
       </div>
     </div>
   </section>
 `;
+}
 
 function extractTagContent(source: string, pattern: RegExp, fallback = "") {
   const match = source.match(pattern);
@@ -327,6 +500,7 @@ function extractTagContent(source: string, pattern: RegExp, fallback = "") {
 
 export default function HomePage() {
   const { user, loading } = useAuth();
+  const [billingInterval, setBillingInterval] = useState<BillingInterval>("monthly");
 
   const { title, description, styles, bodyMarkup } = useMemo(() => {
     const pageTitle = extractTagContent(
@@ -350,7 +524,10 @@ export default function HomePage() {
 
     const bodyWithPricing = pageBody
       .replaceAll('href="/pricing"', 'href="#pricing"')
-      .replace("  <!-- Final CTA -->", `${pricingSectionMarkup}\n\n  <!-- Final CTA -->`);
+      .replace(
+        "  <!-- Final CTA -->",
+        `${renderPricingSectionMarkup(billingInterval)}\n\n  <!-- Final CTA -->`,
+      );
 
     return {
       title: pageTitle,
@@ -358,7 +535,7 @@ export default function HomePage() {
       styles: `${pageStyles}\n${pricingSectionStyles}`,
       bodyMarkup: bodyWithPricing,
     };
-  }, []);
+  }, [billingInterval]);
 
   useEffect(() => {
     const previousTitle = document.title;
@@ -388,6 +565,24 @@ export default function HomePage() {
       }
     };
   }, [description, title]);
+
+  useEffect(() => {
+    function handleBillingToggle(event: MouseEvent) {
+      const target = event.target as HTMLElement | null;
+      const toggle = target?.closest<HTMLElement>("[data-billing-toggle]");
+      const nextInterval = toggle?.dataset.billingToggle;
+
+      if (nextInterval === "monthly" || nextInterval === "annual") {
+        setBillingInterval(nextInterval);
+      }
+    }
+
+    document.addEventListener("click", handleBillingToggle);
+
+    return () => {
+      document.removeEventListener("click", handleBillingToggle);
+    };
+  }, []);
 
   if (!loading && user) {
     return <Navigate to="/dashboard" replace />;

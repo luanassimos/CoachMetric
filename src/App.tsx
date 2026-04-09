@@ -32,6 +32,11 @@ import DevUsersPage from "@/pages/DevUsersPage";
 import ActionCenterPage from "@/pages/ActionCenterPage";
 import HomePage from "@/pages/HomePage";
 import PricingPage from "@/pages/pricing";
+import TermsPage from "@/pages/TermsPage";
+import PrivacyPage from "@/pages/PrivacyPage";
+import BillingPage from "@/pages/BillingPage";
+import SecurityPage from "@/pages/SecurityPage";
+import AcceptableUsePage from "@/pages/AcceptableUsePage";
 
 
 const queryClient = new QueryClient();
@@ -67,6 +72,11 @@ function App() {
           <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/pricing" element={<PricingPage />} />
+              <Route path="/terms" element={<TermsPage />} />
+              <Route path="/privacy" element={<PrivacyPage />} />
+              <Route path="/billing" element={<BillingPage />} />
+              <Route path="/security" element={<SecurityPage />} />
+              <Route path="/acceptable-use" element={<AcceptableUsePage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
