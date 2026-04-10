@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from "react";
 import { ArrowRight, Loader2 } from "lucide-react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -17,6 +17,7 @@ export default function LoginPage() {
   const resetSuccess = searchParams.get("reset") === "success";
   const resetEmail = searchParams.get("email") ?? "";
   const redirectPath = searchParams.get("redirect") ?? "";
+  const signupConfirmation = searchParams.get("signup") === "confirm";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,6 +30,11 @@ export default function LoginPage() {
       setEmail(resetEmail);
     }
 
+    const prefilledEmail = searchParams.get("email");
+    if (prefilledEmail && !resetSuccess) {
+      setEmail(prefilledEmail);
+    }
+
     if (!resetSuccess) return;
 
     const timeout = window.setTimeout(() => {
@@ -36,7 +42,7 @@ export default function LoginPage() {
     }, 3000);
 
     return () => window.clearTimeout(timeout);
-  }, [resetSuccess, resetEmail, setSearchParams]);
+  }, [resetSuccess, resetEmail, searchParams, setSearchParams]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -219,6 +225,12 @@ export default function LoginPage() {
                   </div>
                 ) : null}
 
+                {signupConfirmation ? (
+                  <div className="mt-5 rounded-[16px] border border-emerald-500/18 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+                    Check your email to confirm your account, then sign in to continue onboarding.
+                  </div>
+                ) : null}
+
                 {error ? (
                   <div className="mt-5 rounded-[16px] border border-red-500/18 bg-red-500/10 px-4 py-3 text-sm text-red-300">
                     {error}
@@ -246,7 +258,15 @@ export default function LoginPage() {
             </div>
 
             <p className="mt-6 text-center text-[13px] text-white/28">
-              CoachMetric © 2026
+              Need an account?{" "}
+              <Link
+                to={`/signup${
+                  searchParams.toString() ? `?${searchParams.toString()}` : ""
+                }`}
+                className="text-white/62 transition hover:text-white"
+              >
+                Create one
+              </Link>
             </p>
           </div>
         </section>

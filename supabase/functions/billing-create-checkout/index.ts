@@ -5,9 +5,19 @@ import { HttpError, requireStudioAccess } from "../_shared/auth.ts";
 import {
   buildBillingReturnUrl,
   getStripePriceId,
+  isBillingInterval,
+  isBillingPlanKey,
   stripe,
 } from "../_shared/billing.ts";
 import { createServiceRoleClient } from "../_shared/supabase.ts";
+
+function getCheckoutErrorCode(status: number) {
+  if (status === 400) return "invalid_checkout_request";
+  if (status === 401) return "unauthenticated";
+  if (status === 403) return "studio_access_denied";
+  if (status === 409) return "checkout_conflict";
+  return "checkout_error";
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -17,9 +27,23 @@ Deno.serve(async (req: Request) => {
   try {
     const { studioId, planKey, billingInterval } = await req.json();
 
-    if (!studioId || !planKey || !billingInterval) {
+    if (!studioId || typeof studioId !== "string") {
       return jsonResponse(
-        { error: "studioId, planKey, and billingInterval are required." },
+        { error: "studioId is required." },
+        { status: 400 },
+      );
+    }
+
+    if (!isBillingPlanKey(planKey)) {
+      return jsonResponse(
+        { error: "Only Starter and Growth can create self-serve checkout." },
+        { status: 400 },
+      );
+    }
+
+    if (!isBillingInterval(billingInterval)) {
+      return jsonResponse(
+        { error: "billingInterval must be monthly or annual." },
         { status: 400 },
       );
     }
@@ -48,6 +72,32 @@ Deno.serve(async (req: Request) => {
         },
         { status: 409 },
       );
+    }
+
+    if (
+      existingBilling?.stripe_checkout_session_id &&
+      !existingBilling?.stripe_subscription_id &&
+      ["inactive", "incomplete", "incomplete_expired"].includes(
+        existingBilling.status ?? "inactive",
+      )
+    ) {
+      const existingSession = await stripe.checkout.sessions.retrieve(
+        existingBilling.stripe_checkout_session_id,
+      );
+
+      if (existingSession.status === "open" && existingSession.url) {
+        return jsonResponse({ url: existingSession.url });
+      }
+
+      if (existingSession.status === "complete") {
+        return jsonResponse(
+          {
+            error:
+              "Stripe checkout already completed for this studio. Refresh billing in a moment while CoachMetric finishes syncing the subscription.",
+          },
+          { status: 409 },
+        );
+      }
     }
 
     const { data: studio, error: studioError } = await supabase
@@ -122,7 +172,10 @@ Deno.serve(async (req: Request) => {
   } catch (error) {
     const status = error instanceof HttpError ? error.status : 500;
     return jsonResponse(
-      { error: error instanceof Error ? error.message : "Unexpected error." },
+      {
+        error: error instanceof Error ? error.message : "Unexpected error.",
+        code: getCheckoutErrorCode(status),
+      },
       { status },
     );
   }

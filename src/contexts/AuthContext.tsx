@@ -1,4 +1,5 @@
 import {
+  useCallback,
   createContext,
   useContext,
   useEffect,
@@ -10,12 +11,64 @@ import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import type { GlobalRole } from "@/lib/devAccess";
 
+function normalizeAuthError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return new Error("Unable to complete authentication right now.");
+  }
+
+  const message = error.message.toLowerCase();
+
+  if (
+    message.includes("email rate limit exceeded") ||
+    message.includes("over_email_send_rate_limit")
+  ) {
+    return new Error(
+      "Too many signup attempts. Please wait a few minutes and try again.",
+    );
+  }
+
+  if (
+    message.includes("user already registered") ||
+    message.includes("already been registered") ||
+    message.includes("already registered")
+  ) {
+    return new Error(
+      "An account with this email already exists. Sign in instead, or finish confirming your email if you already started signup.",
+    );
+  }
+
+  if (
+    message.includes("email not confirmed") ||
+    message.includes("signup disabled") ||
+    message.includes("email address not authorized")
+  ) {
+    return new Error(error.message);
+  }
+
+  if (
+    message.includes("failed to fetch") ||
+    message.includes("networkerror") ||
+    message.includes("network request failed")
+  ) {
+    return new Error(
+      "CoachMetric could not reach authentication right now. Check your connection and try again.",
+    );
+  }
+
+  return error;
+}
+
 type AuthContextType = {
   user: User | null;
   session: Session | null;
   loading: boolean;
   globalRole: GlobalRole;
   signIn: (email: string, password: string) => Promise<void>;
+  signUp: (params: {
+    fullName: string;
+    email: string;
+    password: string;
+  }) => Promise<{ needsEmailVerification: boolean }>;
   signOut: () => Promise<void>;
   requestPasswordReset: (email: string) => Promise<void>;
   updatePassword: (password: string) => Promise<void>;
@@ -32,7 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [globalRole, setGlobalRole] = useState<GlobalRole>("none");
 
-  async function loadProfile(userId: string): Promise<GlobalRole> {
+  const loadProfile = useCallback(async (userId: string): Promise<GlobalRole> => {
     try {
       const { data, error } = await supabase
         .from("user_profiles")
@@ -45,23 +98,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       return "none";
     }
-  }
+  }, []);
 
-  function markActivity() {
+  const markActivity = useCallback(() => {
     localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
-  }
+  }, []);
 
-  function clearActivity() {
+  const clearActivity = useCallback(() => {
     localStorage.removeItem(LAST_ACTIVITY_KEY);
-  }
+  }, []);
 
-  function getLastActivityAt() {
+  const getLastActivityAt = useCallback(() => {
     const raw = localStorage.getItem(LAST_ACTIVITY_KEY);
     const value = Number(raw);
     return Number.isFinite(value) ? value : 0;
-  }
+  }, []);
 
-  async function forceSignOut() {
+  const forceSignOut = useCallback(async () => {
     try {
       await supabase.auth.signOut();
     } catch (error) {
@@ -73,7 +126,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setGlobalRole("none");
       setLoading(false);
     }
-  }
+  }, [clearActivity]);
 
   useEffect(() => {
     let isMounted = true;
@@ -147,7 +200,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [clearActivity, loadProfile, markActivity]);
 
   useEffect(() => {
     if (!session?.user) return;
@@ -197,25 +250,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.clearInterval(interval);
     };
-  }, [session?.user?.id]);
+  }, [forceSignOut, getLastActivityAt, markActivity, session?.user]);
 
-  async function signIn(email: string, password: string) {
+  const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password,
     });
 
-    if (error) throw error;
+    if (error) throw normalizeAuthError(error);
     markActivity();
-  }
+  }, [markActivity]);
 
-  async function signOut() {
+  const signUp = useCallback(async (params: {
+    fullName: string;
+    email: string;
+    password: string;
+  }) => {
+    const { data, error } = await supabase.auth.signUp({
+      email: params.email.trim(),
+      password: params.password,
+      options: {
+        data: {
+          full_name: params.fullName.trim(),
+        },
+      },
+    });
+
+    if (error) throw normalizeAuthError(error);
+
+    if (data.session) {
+      markActivity();
+    }
+
+    return {
+      needsEmailVerification: !data.session,
+    };
+  }, [markActivity]);
+
+  const signOut = useCallback(async () => {
     const { error } = await supabase.auth.signOut();
     clearActivity();
     if (error) throw error;
-  }
+  }, [clearActivity]);
 
-  async function requestPasswordReset(email: string) {
+  const requestPasswordReset = useCallback(async (email: string) => {
     const redirectTo = `${window.location.origin}/reset-password`;
 
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
@@ -223,15 +302,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     if (error) throw error;
-  }
+  }, []);
 
-  async function updatePassword(password: string) {
+  const updatePassword = useCallback(async (password: string) => {
     const { error } = await supabase.auth.updateUser({
       password,
     });
 
     if (error) throw error;
-  }
+  }, []);
 
   const value = useMemo(
     () => ({
@@ -240,11 +319,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       globalRole,
       signIn,
+      signUp,
       signOut,
       requestPasswordReset,
       updatePassword,
     }),
-    [user, session, loading, globalRole],
+    [
+      user,
+      session,
+      loading,
+      globalRole,
+      signIn,
+      signUp,
+      signOut,
+      requestPasswordReset,
+      updatePassword,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

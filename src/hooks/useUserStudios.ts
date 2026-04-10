@@ -4,7 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 
 type UserStudioMembership = {
   studio_id: string;
-  role: "head_coach" | "coach";
+  role: "head_coach" | "head_trainer" | "coach" | "staff" | "viewer";
 };
 
 export function useUserStudios() {

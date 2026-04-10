@@ -37,6 +37,7 @@ export type StudioBillingState = {
   last_synced_at: string | null;
   created_at: string | null;
   updated_at: string | null;
+  checkout_pending?: boolean;
 };
 
 export type StudioBillingResponse = {
@@ -53,8 +54,12 @@ export type StudioEntitlement = {
   detail: string;
 };
 
+const billingEnforcementSetting =
+  import.meta.env.VITE_ENABLE_BILLING_ENFORCEMENT;
+
 export const billingEnforcementEnabled =
-  import.meta.env.VITE_ENABLE_BILLING_ENFORCEMENT === "true";
+  billingEnforcementSetting === "true" ||
+  (import.meta.env.PROD && billingEnforcementSetting !== "false");
 
 export const BILLING_PLAN_OPTIONS: Array<{
   key: BillingPlanKey;
@@ -94,10 +99,10 @@ function maxIsoDate(...values: Array<string | null | undefined>) {
 }
 
 export function formatBillingDate(value: string | null | undefined) {
-  if (!value) return "—";
+  if (!value) return "-";
 
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
+  if (Number.isNaN(date.getTime())) return "-";
 
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
@@ -142,6 +147,17 @@ export function computeStudioEntitlement(
         billing.status === "trialing"
           ? "This studio is currently entitled through an active trial."
           : "This studio has an active subscription and can access the platform normally.",
+    };
+  }
+
+  if (billing.checkout_pending) {
+    return {
+      accessState: "warning",
+      isEntitled: false,
+      entitlementEndsAt,
+      headline: "Checkout is still pending",
+      detail:
+        "CoachMetric is waiting for Stripe to finish the first subscription sync for this studio. Refresh in a moment if you just completed checkout.",
     };
   }
 

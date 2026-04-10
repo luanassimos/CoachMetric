@@ -5,7 +5,15 @@ export type BillingPlanKey = "starter" | "growth";
 export type BillingInterval = "monthly" | "annual";
 
 const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY")!;
-const appUrl = Deno.env.get("APP_URL") ?? "http://localhost:3000";
+const appUrl = Deno.env.get("APP_URL");
+
+if (!stripeSecretKey) {
+  throw new Error("Missing STRIPE_SECRET_KEY environment variable.");
+}
+
+if (!appUrl) {
+  throw new Error("Missing APP_URL environment variable.");
+}
 
 export const stripe = new Stripe(stripeSecretKey, {
   appInfo: {
@@ -13,6 +21,14 @@ export const stripe = new Stripe(stripeSecretKey, {
     version: "1.0.0",
   },
 });
+
+export function isBillingPlanKey(value: unknown): value is BillingPlanKey {
+  return value === "starter" || value === "growth";
+}
+
+export function isBillingInterval(value: unknown): value is BillingInterval {
+  return value === "monthly" || value === "annual";
+}
 
 export function getStripePriceId(
   planKey: BillingPlanKey,
@@ -34,6 +50,18 @@ export function getStripePriceId(
   }
 
   return value;
+}
+
+export function requireBillingPortalConfigurationId() {
+  const configurationId = Deno.env.get("STRIPE_BILLING_PORTAL_CONFIGURATION_ID");
+
+  if (!configurationId) {
+    throw new Error(
+      "Missing STRIPE_BILLING_PORTAL_CONFIGURATION_ID environment variable.",
+    );
+  }
+
+  return configurationId;
 }
 
 function toIsoOrNull(value?: number | null) {

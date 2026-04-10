@@ -35,8 +35,7 @@ function buildBillingIntentHref(
   planKey: "starter" | "growth",
   billingInterval: BillingInterval,
 ) {
-  const redirect = `/settings/billing?intent=checkout&plan=${planKey}&interval=${billingInterval}`;
-  return `/login?redirect=${encodeURIComponent(redirect)}`;
+  return `/signup?plan=${planKey}&interval=${billingInterval}`;
 }
 
 const pricingPlans: PricingPlan[] = [

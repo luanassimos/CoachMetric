@@ -1,5 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { callSupabaseFunction } from "@/lib/supabaseFunctions";
+import {
+  callSupabaseFunction,
+  isSupabaseFunctionError,
+} from "@/lib/supabaseFunctions";
 import type {
   BillingInterval,
   BillingPlanKey,
@@ -34,6 +37,16 @@ export function useStudioBillingState(studioId: string | null | undefined) {
       }),
     staleTime: 30_000,
     refetchOnWindowFocus: true,
+    retry: (failureCount, error) => {
+      if (
+        isSupabaseFunctionError(error) &&
+        [400, 401, 403, 404].includes(error.status)
+      ) {
+        return false;
+      }
+
+      return failureCount < 1;
+    },
   });
 }
 

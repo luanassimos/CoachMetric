@@ -6,6 +6,7 @@ import ResetPasswordPage from "@/pages/ResetPasswordPage";
 import Settings from "@/pages/Settings";
 import NewCoachPage from "@/pages/NewCoachPage";
 import LoginPage from "@/pages/LoginPage";
+import SignupPage from "@/pages/SignupPage";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import EditTrainingPage from "@/pages/EditTrainingPage";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -38,6 +39,7 @@ import BillingPage from "@/pages/BillingPage";
 import SecurityPage from "@/pages/SecurityPage";
 import AcceptableUsePage from "@/pages/AcceptableUsePage";
 import StudioBillingPage from "@/pages/StudioBillingPage";
+import SelfServeOnboardingPage from "@/pages/SelfServeOnboardingPage";
 
 
 const queryClient = new QueryClient();
@@ -79,6 +81,15 @@ function App() {
               <Route path="/security" element={<SecurityPage />} />
               <Route path="/acceptable-use" element={<AcceptableUsePage />} />
               <Route path="/login" element={<LoginPage />} />
+              <Route path="/signup" element={<SignupPage />} />
+              <Route
+                path="/onboarding"
+                element={
+                  <ProtectedRoute>
+                    <SelfServeOnboardingPage />
+                  </ProtectedRoute>
+                }
+              />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
               <Route

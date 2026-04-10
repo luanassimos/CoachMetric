@@ -14,6 +14,7 @@ import {
 
 import { useStudios } from "@/hooks/useStudios";
 import { useStudio } from "@/contexts/StudioContext";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   createStudio,
   deleteStudio,
@@ -22,6 +23,9 @@ import {
 import type { Studio } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { canAccessAdminFeatures } from "@/lib/devAccess";
+import { useCreateAdditionalSelfServeStudio, useSelfServeOnboardingState } from "@/hooks/useSelfServeOnboarding";
+import { getStudioLimitForPlan } from "@/lib/selfServeOnboarding";
 
 function SurfaceCard({
   children,
@@ -48,10 +52,13 @@ function getDraftFromStudio(studio: Studio): DraftState {
 }
 
 export default function StudiosPage() {
-    const navigate = useNavigate();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { globalRole } = useAuth();
   const { studios, loading } = useStudios();
   const { selectedStudioId, setSelectedStudioId } = useStudio();
+  const onboardingQuery = useSelfServeOnboardingState();
+  const createAdditionalStudioMutation = useCreateAdditionalSelfServeStudio();
 
   const [createDraft, setCreateDraft] = useState<DraftState>({
     name: "",
@@ -71,19 +78,43 @@ export default function StudiosPage() {
     [studios, selectedStudioId],
   );
 
+  const selfServePlan =
+    onboardingQuery.data?.onboarding?.status === "completed"
+      ? onboardingQuery.data.onboarding.selected_plan
+      : null;
+  const selfServeLimit = getStudioLimitForPlan(selfServePlan);
+  const ownedStudioCount = onboardingQuery.data?.ownedStudioCount ?? 0;
+  const shouldEnforceSelfServeLimit =
+    !canAccessAdminFeatures(globalRole) &&
+    (selfServePlan === "starter" || selfServePlan === "growth");
+  const hasReachedStudioLimit =
+    shouldEnforceSelfServeLimit &&
+    typeof selfServeLimit === "number" &&
+    ownedStudioCount >= selfServeLimit;
+
   const createStudioMutation = useMutation({
     mutationFn: async () => {
+      if (shouldEnforceSelfServeLimit) {
+        return createAdditionalStudioMutation.mutateAsync({
+          name: createDraft.name,
+          city: createDraft.city,
+          state: createDraft.state,
+        });
+      }
+
       return createStudio({
         name: createDraft.name,
         city: createDraft.city,
         state: createDraft.state,
       });
     },
-    onSuccess: async (createdStudio) => {
-  setCreateDraft({ name: "", city: "", state: "" });
-  await queryClient.invalidateQueries({ queryKey: ["studios"] });
-  setSelectedStudioId(createdStudio.id);
-},
+    onSuccess: async (result) => {
+      const createdStudio = "studio" in result ? result.studio : result;
+      setCreateDraft({ name: "", city: "", state: "" });
+      await queryClient.invalidateQueries({ queryKey: ["studios"] });
+      await queryClient.invalidateQueries({ queryKey: ["self-serve-onboarding"] });
+      setSelectedStudioId(createdStudio.id);
+    },
   });
 
   const updateStudioMutation = useMutation({
@@ -165,6 +196,13 @@ export default function StudiosPage() {
               Add a new studio to the organization and make it available across
               dashboard, coaches, training, and evaluations.
             </p>
+            {shouldEnforceSelfServeLimit ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {selfServePlan === "starter"
+                  ? `Starter supports up to ${selfServeLimit} studios total. Upgrade to Growth if you need more capacity.`
+                  : `Growth supports up to ${selfServeLimit} studios total. Contact support@coachmetric.io if you need a larger rollout.`}
+              </p>
+            ) : null}
           </div>
 
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.4fr_1fr_0.7fr_auto]">
@@ -207,7 +245,9 @@ export default function StudiosPage() {
             <Button
               type="button"
               onClick={() => createStudioMutation.mutate()}
-              disabled={!canCreate || createStudioMutation.isPending}
+              disabled={
+                !canCreate || createStudioMutation.isPending || hasReachedStudioLimit
+              }
               className="h-11"
             >
               {createStudioMutation.isPending ? (
@@ -218,6 +258,14 @@ export default function StudiosPage() {
               Add Studio
             </Button>
           </div>
+
+          {hasReachedStudioLimit ? (
+            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+              {selfServePlan === "starter"
+                ? "Starter has reached its 3-studio limit. Move to Growth before adding another studio."
+                : "Growth has reached its 15-studio limit. Contact support@coachmetric.io for a larger multi-studio setup."}
+            </div>
+          ) : null}
         </div>
       </SurfaceCard>
 
